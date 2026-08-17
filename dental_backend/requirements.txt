@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+tensorflow
+numpy
+pillow
+opencv-python-headless
+ultralytics
+pytest
+httpx
