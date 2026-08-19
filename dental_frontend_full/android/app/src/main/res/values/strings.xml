@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">dental-vision</string>
+    <string name="title_activity_main">dental-vision</string>
+    <string name="package_name">com.mathesislabs.dentalvision</string>
+    <string name="custom_url_scheme">com.mathesislabs.dentalvision</string>
+</resources>
