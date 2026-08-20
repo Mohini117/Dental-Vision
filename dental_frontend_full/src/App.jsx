@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { RefreshCcw } from "lucide-react";
+import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 
 import Header from "./components/Header";
 import ImageInput from "./components/ImageInput";
@@ -82,16 +83,28 @@ export default function App() {
     event.target.value = "";
   }
 
-  function openCamera() {
-    if (!inputRef.current)
-      return;
+  async function openCamera() {
+    try {
+      const photo = await Camera.getPhoto({
+        resultType: CameraResultType.Uri,
+        source: CameraSource.Camera,
+        quality: 90,
+      });
 
-    inputRef.current.setAttribute(
-      "capture",
-      "environment"
-    );
+      const response = await fetch(photo.webPath);
+      const blob = await response.blob();
+      const capturedFile = new File(
+        [blob],
+        `capture-${Date.now()}.jpeg`,
+        { type: blob.type || "image/jpeg" }
+      );
 
-    inputRef.current.click();
+      setSelectedFile(capturedFile);
+    } catch (err) {
+      if (err?.message !== "User cancelled photos app") {
+        setError("Unable to open the camera.");
+      }
+    }
   }
 
   function openUploader() {
@@ -384,4 +397,4 @@ export default function App() {
       </footer>
     </div>
   );
-}
+} 
