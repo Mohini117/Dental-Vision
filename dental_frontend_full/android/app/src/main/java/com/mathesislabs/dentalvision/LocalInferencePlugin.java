@@ -32,10 +32,20 @@ import java.util.List;
 public class LocalInferencePlugin extends Plugin {
     private static final int INPUT_SIZE = 224;
     private static final int CARIES_INPUT_SIZE = 320;
+    private static final int CARIES_CLASS_COUNT = 11;
     private static final float CARIES_THRESHOLD = 0.50f;
     private static final String[] CARIES_CLASSES = {
-        "primary_caries",
-        "permanent_caries"
+        "black stain",
+        "cavities",
+        "cavity",
+        "decay",
+        "decaycavity",
+        "decayed tooth",
+        "earlydecay",
+        "filling",
+        "healthytooth",
+        "normal",
+        "tooth-decay"
     };
     private static final String[] CLASSES = {
         "Calculus",
@@ -52,8 +62,8 @@ public class LocalInferencePlugin extends Plugin {
     @Override
     public void load() {
         try {
-            interpreter = new Interpreter(loadModel("dental_mobilenetv3_android_approved.tflite"));
-            cariesInterpreter = new Interpreter(loadModel("best_int8.tflite"));
+            interpreter = new Interpreter(loadModel("teeth_model.tflite"));
+            cariesInterpreter = new Interpreter(loadModel("yolov8_100.tflite"));
         } catch (IOException exception) {
             interpreter = null;
             cariesInterpreter = null;
@@ -226,7 +236,7 @@ public class LocalInferencePlugin extends Plugin {
         Bitmap resized = Bitmap.createScaledBitmap(image, resizedWidth, resizedHeight, true);
         canvas.drawBitmap(resized, padX, padY, new Paint(Paint.FILTER_BITMAP_FLAG));
 
-        float[][][] output = new float[1][6][2100];
+        float[][][] output = new float[1][4 + CARIES_CLASS_COUNT][2100];
         cariesInterpreter.run(toCariesInputBuffer(letterboxed), output);
         resized.recycle();
         letterboxed.recycle();
@@ -246,6 +256,11 @@ public class LocalInferencePlugin extends Plugin {
                 continue;
             }
 
+            String className = CARIES_CLASSES[classIndex];
+            if (!isCariesClass(className)) {
+                continue;
+            }
+
             float centerX = output[0][0][index] * CARIES_INPUT_SIZE;
             float centerY = output[0][1][index] * CARIES_INPUT_SIZE;
             float width = output[0][2][index] * CARIES_INPUT_SIZE;
@@ -255,12 +270,22 @@ public class LocalInferencePlugin extends Plugin {
             float x2 = clamp((centerX + width / 2.0f - padX) / scale, 0.0f, image.getWidth());
             float y2 = clamp((centerY + height / 2.0f - padY) / scale, 0.0f, image.getHeight());
             if (x2 > x1 && y2 > y1) {
-                detections.add(new Detection(CARIES_CLASSES[classIndex], bestScore, x1, y1, x2, y2));
+                detections.add(new Detection(className, bestScore, x1, y1, x2, y2));
             }
         }
 
         detections.sort(Comparator.comparingDouble((Detection detection) -> detection.confidence).reversed());
         return applyNms(detections);
+    }
+
+    private boolean isCariesClass(String className) {
+        return className.equals("cavities")
+            || className.equals("cavity")
+            || className.equals("decay")
+            || className.equals("decaycavity")
+            || className.equals("decayed tooth")
+            || className.equals("earlydecay")
+            || className.equals("tooth-decay");
     }
 
     private ByteBuffer toCariesInputBuffer(Bitmap bitmap) {
