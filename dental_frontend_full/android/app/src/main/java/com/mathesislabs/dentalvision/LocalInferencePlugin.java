@@ -2,7 +2,9 @@ package com.mathesislabs.dentalvision;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.util.Base64;
 
 import com.getcapacitor.JSObject;
@@ -21,11 +23,20 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
 
 @CapacitorPlugin(name = "LocalInference")
 public class LocalInferencePlugin extends Plugin {
     private static final int INPUT_SIZE = 224;
+    private static final int CARIES_INPUT_SIZE = 320;
+    private static final float CARIES_THRESHOLD = 0.50f;
+    private static final String[] CARIES_CLASSES = {
+        "primary_caries",
+        "permanent_caries"
+    };
     private static final String[] CLASSES = {
         "Calculus",
         "Caries",
@@ -36,13 +47,16 @@ public class LocalInferencePlugin extends Plugin {
     };
 
     private Interpreter interpreter;
+    private Interpreter cariesInterpreter;
 
     @Override
     public void load() {
         try {
             interpreter = new Interpreter(loadModel("dental_mobilenetv3_android_approved.tflite"));
+            cariesInterpreter = new Interpreter(loadModel("best_int8.tflite"));
         } catch (IOException exception) {
             interpreter = null;
+            cariesInterpreter = null;
         }
     }
 
@@ -70,8 +84,9 @@ public class LocalInferencePlugin extends Plugin {
             Bitmap resized = Bitmap.createScaledBitmap(original, INPUT_SIZE, INPUT_SIZE, true);
             float[][] output = new float[1][CLASSES.length];
             interpreter.run(toInputBuffer(resized), output);
+            List<Detection> detections = detectCaries(original);
 
-            JSObject response = buildResponse(original, output[0]);
+            JSObject response = buildResponse(original, output[0], detections);
             call.resolve(response);
 
             resized.recycle();
@@ -107,7 +122,7 @@ public class LocalInferencePlugin extends Plugin {
         return input;
     }
 
-    private JSObject buildResponse(Bitmap image, float[] rawOutput) throws Exception {
+    private JSObject buildResponse(Bitmap image, float[] rawOutput, List<Detection> detections) throws Exception {
         float[] probabilities = Arrays.copyOf(rawOutput, rawOutput.length);
         float total = 0.0f;
         int bestIndex = 0;
@@ -128,6 +143,8 @@ public class LocalInferencePlugin extends Plugin {
 
         float confidence = probabilities[bestIndex];
         boolean confident = confidence >= 0.70f;
+        Detection strongestCaries = detections.isEmpty() ? null : detections.get(0);
+        boolean cariesDetected = strongestCaries != null;
         JSONObject classifier = new JSONObject();
         JSONObject probabilityMap = new JSONObject();
         for (int index = 0; index < CLASSES.length; index++) {
@@ -142,14 +159,32 @@ public class LocalInferencePlugin extends Plugin {
         int height = image.getHeight();
         double brightness = averageBrightness(image);
         boolean acceptable = Math.min(width, height) >= 160 && brightness >= 20 && brightness <= 245;
-        String status = acceptable && confident ? "prediction" : acceptable ? "uncertain" : "poor_image_quality";
+        String status;
+        if (!acceptable) {
+            status = "poor_image_quality";
+        } else if (cariesDetected) {
+            status = "possible_caries";
+        } else {
+            status = confident ? "prediction" : "uncertain";
+        }
 
         JSObject response = new JSObject();
         response.put("status", status);
         response.put("classifier", classifier);
-        response.put("caries_detected", false);
-        response.put("caries_confidence", 0.0);
-        response.put("caries_detections", new JSONArray());
+        response.put("caries_detected", cariesDetected);
+        response.put("caries_confidence", cariesDetected ? strongestCaries.confidence : 0.0);
+        JSONArray detectionArray = new JSONArray();
+        for (Detection detection : detections) {
+            detectionArray.put(new JSONObject()
+                .put("class_name", detection.className)
+                .put("confidence", detection.confidence)
+                .put("bbox", new JSONObject()
+                    .put("x1", detection.x1)
+                    .put("y1", detection.y1)
+                    .put("x2", detection.x2)
+                    .put("y2", detection.y2)));
+        }
+        response.put("caries_detections", detectionArray);
         response.put("image_quality", new JSONObject()
             .put("width", width)
             .put("height", height)
@@ -158,12 +193,140 @@ public class LocalInferencePlugin extends Plugin {
             .put("warnings", acceptable ? new JSONArray() : new JSONArray().put("Image quality may reduce reliability."))
             .put("acceptable", acceptable));
         response.put("screening", new JSONObject()
-            .put("primary_condition", status.equals("prediction") ? CLASSES[bestIndex] : JSONObject.NULL)
-            .put("confidence", status.equals("prediction") ? confidence : 0.0)
+            .put("primary_condition", status.equals("possible_caries") ? "Possible Caries" : status.equals("prediction") ? CLASSES[bestIndex] : JSONObject.NULL)
+            .put("confidence", status.equals("possible_caries") ? strongestCaries.confidence : status.equals("prediction") ? confidence : 0.0)
             .put("status", status));
         response.put("processing_time_ms", 0.0);
-        response.put("message", "On-device classifier screening. The caries detector is not bundled in this APK yet.");
+        response.put("message", cariesDetected
+            ? "Possible caries was detected by the on-device localized caries model. Professional dental assessment is recommended."
+            : "This is an on-device AI-assisted screening result, not a definitive dental diagnosis.");
         return response;
+    }
+
+    private List<Detection> detectCaries(Bitmap image) {
+        List<Detection> detections = new ArrayList<>();
+        if (cariesInterpreter == null) {
+            return detections;
+        }
+
+        float scale = Math.min(
+            (float) CARIES_INPUT_SIZE / image.getWidth(),
+            (float) CARIES_INPUT_SIZE / image.getHeight());
+        int resizedWidth = Math.round(image.getWidth() * scale);
+        int resizedHeight = Math.round(image.getHeight() * scale);
+        int padX = (CARIES_INPUT_SIZE - resizedWidth) / 2;
+        int padY = (CARIES_INPUT_SIZE - resizedHeight) / 2;
+
+        Bitmap letterboxed = Bitmap.createBitmap(
+            CARIES_INPUT_SIZE,
+            CARIES_INPUT_SIZE,
+            Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(letterboxed);
+        canvas.drawColor(Color.BLACK);
+        Bitmap resized = Bitmap.createScaledBitmap(image, resizedWidth, resizedHeight, true);
+        canvas.drawBitmap(resized, padX, padY, new Paint(Paint.FILTER_BITMAP_FLAG));
+
+        float[][][] output = new float[1][6][2100];
+        cariesInterpreter.run(toCariesInputBuffer(letterboxed), output);
+        resized.recycle();
+        letterboxed.recycle();
+
+        for (int index = 0; index < 2100; index++) {
+            float bestScore = 0.0f;
+            int classIndex = 0;
+            for (int candidate = 0; candidate < CARIES_CLASSES.length; candidate++) {
+                float score = output[0][4 + candidate][index];
+                if (score > bestScore) {
+                    bestScore = score;
+                    classIndex = candidate;
+                }
+            }
+
+            if (bestScore < CARIES_THRESHOLD) {
+                continue;
+            }
+
+            float centerX = output[0][0][index] * CARIES_INPUT_SIZE;
+            float centerY = output[0][1][index] * CARIES_INPUT_SIZE;
+            float width = output[0][2][index] * CARIES_INPUT_SIZE;
+            float height = output[0][3][index] * CARIES_INPUT_SIZE;
+            float x1 = clamp((centerX - width / 2.0f - padX) / scale, 0.0f, image.getWidth());
+            float y1 = clamp((centerY - height / 2.0f - padY) / scale, 0.0f, image.getHeight());
+            float x2 = clamp((centerX + width / 2.0f - padX) / scale, 0.0f, image.getWidth());
+            float y2 = clamp((centerY + height / 2.0f - padY) / scale, 0.0f, image.getHeight());
+            if (x2 > x1 && y2 > y1) {
+                detections.add(new Detection(CARIES_CLASSES[classIndex], bestScore, x1, y1, x2, y2));
+            }
+        }
+
+        detections.sort(Comparator.comparingDouble((Detection detection) -> detection.confidence).reversed());
+        return applyNms(detections);
+    }
+
+    private ByteBuffer toCariesInputBuffer(Bitmap bitmap) {
+        ByteBuffer input = ByteBuffer.allocateDirect(CARIES_INPUT_SIZE * CARIES_INPUT_SIZE * 3 * 4)
+            .order(ByteOrder.nativeOrder());
+        for (int channel = 0; channel < 3; channel++) {
+            for (int y = 0; y < CARIES_INPUT_SIZE; y++) {
+                for (int x = 0; x < CARIES_INPUT_SIZE; x++) {
+                    int pixel = bitmap.getPixel(x, y);
+                    int value = channel == 0 ? Color.red(pixel) : channel == 1 ? Color.green(pixel) : Color.blue(pixel);
+                    input.putFloat(value / 255.0f);
+                }
+            }
+        }
+        input.rewind();
+        return input;
+    }
+
+    private List<Detection> applyNms(List<Detection> detections) {
+        List<Detection> kept = new ArrayList<>();
+        for (Detection candidate : detections) {
+            boolean overlaps = false;
+            for (Detection selected : kept) {
+                if (candidate.className.equals(selected.className) && intersectionOverUnion(candidate, selected) > 0.45f) {
+                    overlaps = true;
+                    break;
+                }
+            }
+            if (!overlaps) {
+                kept.add(candidate);
+            }
+        }
+        return kept;
+    }
+
+    private float intersectionOverUnion(Detection first, Detection second) {
+        float x1 = Math.max(first.x1, second.x1);
+        float y1 = Math.max(first.y1, second.y1);
+        float x2 = Math.min(first.x2, second.x2);
+        float y2 = Math.min(first.y2, second.y2);
+        float intersection = Math.max(0.0f, x2 - x1) * Math.max(0.0f, y2 - y1);
+        float firstArea = (first.x2 - first.x1) * (first.y2 - first.y1);
+        float secondArea = (second.x2 - second.x1) * (second.y2 - second.y1);
+        return intersection / Math.max(0.0001f, firstArea + secondArea - intersection);
+    }
+
+    private float clamp(float value, float minimum, float maximum) {
+        return Math.max(minimum, Math.min(maximum, value));
+    }
+
+    private static class Detection {
+        final String className;
+        final float confidence;
+        final float x1;
+        final float y1;
+        final float x2;
+        final float y2;
+
+        Detection(String className, float confidence, float x1, float y1, float x2, float y2) {
+            this.className = className;
+            this.confidence = confidence;
+            this.x1 = x1;
+            this.y1 = y1;
+            this.x2 = x2;
+            this.y2 = y2;
+        }
     }
 
     private Bitmap decodeImage(String encodedImage) {
