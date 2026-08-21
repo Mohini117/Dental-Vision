@@ -1,4 +1,24 @@
+import { Capacitor, registerPlugin } from "@capacitor/core";
+
+const LocalInference = registerPlugin("LocalInference");
+
+function readAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Could not read the image."));
+    reader.readAsDataURL(file);
+  });
+}
+
 export async function analyzeImage(file) {
+  if (Capacitor.isNativePlatform()) {
+    return LocalInference.analyze({
+      imageBase64: await readAsBase64(file),
+    });
+  }
+
   const formData = new FormData();
   formData.append("file", file);
 
