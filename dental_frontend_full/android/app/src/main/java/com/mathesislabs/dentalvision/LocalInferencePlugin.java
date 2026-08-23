@@ -32,20 +32,10 @@ import java.util.List;
 public class LocalInferencePlugin extends Plugin {
     private static final int INPUT_SIZE = 224;
     private static final int CARIES_INPUT_SIZE = 320;
-    private static final int CARIES_CLASS_COUNT = 11;
     private static final float CARIES_THRESHOLD = 0.50f;
     private static final String[] CARIES_CLASSES = {
-        "black stain",
-        "cavities",
-        "cavity",
-        "decay",
-        "decaycavity",
-        "decayed tooth",
-        "earlydecay",
-        "filling",
-        "healthytooth",
-        "normal",
-        "tooth-decay"
+        "caries",
+        "non-caries"
     };
     private static final String[] CLASSES = {
         "Calculus",
@@ -58,15 +48,23 @@ public class LocalInferencePlugin extends Plugin {
 
     private Interpreter interpreter;
     private Interpreter cariesInterpreter;
+    private String modelLoadError;
 
     @Override
     public void load() {
         try {
             interpreter = new Interpreter(loadModel("teeth_model.tflite"));
-            cariesInterpreter = new Interpreter(loadModel("yolov8_100.tflite"));
-        } catch (IOException exception) {
+        } catch (Exception exception) {
             interpreter = null;
+            modelLoadError = "classifier: " + exception.getMessage();
+        }
+        try {
+            cariesInterpreter = new Interpreter(loadModel("yolov8_100.tflite"));
+        } catch (Exception exception) {
             cariesInterpreter = null;
+            modelLoadError = modelLoadError == null
+                ? "caries detector: " + exception.getMessage()
+                : modelLoadError + "; caries detector: " + exception.getMessage();
         }
     }
 
@@ -79,8 +77,8 @@ public class LocalInferencePlugin extends Plugin {
             return;
         }
 
-        if (interpreter == null) {
-            call.reject("The bundled TFLite model could not be loaded.");
+        if (interpreter == null || cariesInterpreter == null) {
+            call.reject("The bundled TFLite models could not be loaded. " + modelLoadError);
             return;
         }
 
@@ -92,7 +90,11 @@ public class LocalInferencePlugin extends Plugin {
             }
 
             Bitmap resized = Bitmap.createScaledBitmap(original, INPUT_SIZE, INPUT_SIZE, true);
-            float[][] output = new float[1][CLASSES.length];
+            int classifierOutputSize = interpreter.getOutputTensor(0).shape()[1];
+            if (classifierOutputSize <= 0) {
+                throw new IllegalStateException("Classifier output tensor is empty.");
+            }
+            float[][] output = new float[1][classifierOutputSize];
             interpreter.run(toInputBuffer(resized), output);
             List<Detection> detections = detectCaries(original);
 
@@ -157,10 +159,10 @@ public class LocalInferencePlugin extends Plugin {
         boolean cariesDetected = strongestCaries != null;
         JSONObject classifier = new JSONObject();
         JSONObject probabilityMap = new JSONObject();
-        for (int index = 0; index < CLASSES.length; index++) {
-            probabilityMap.put(CLASSES[index], probabilities[index]);
+        for (int index = 0; index < probabilities.length; index++) {
+            probabilityMap.put(classifierLabel(index), probabilities[index]);
         }
-        classifier.put("top_prediction", CLASSES[bestIndex]);
+        classifier.put("top_prediction", classifierLabel(bestIndex));
         classifier.put("confidence", confidence);
         classifier.put("status", confident ? "prediction" : "uncertain");
         classifier.put("probabilities", probabilityMap);
@@ -203,7 +205,7 @@ public class LocalInferencePlugin extends Plugin {
             .put("warnings", acceptable ? new JSONArray() : new JSONArray().put("Image quality may reduce reliability."))
             .put("acceptable", acceptable));
         response.put("screening", new JSONObject()
-            .put("primary_condition", status.equals("possible_caries") ? "Possible Caries" : status.equals("prediction") ? CLASSES[bestIndex] : JSONObject.NULL)
+            .put("primary_condition", status.equals("possible_caries") ? "Possible Caries" : status.equals("prediction") ? classifierLabel(bestIndex) : JSONObject.NULL)
             .put("confidence", status.equals("possible_caries") ? strongestCaries.confidence : status.equals("prediction") ? confidence : 0.0)
             .put("status", status));
         response.put("processing_time_ms", 0.0);
@@ -236,15 +238,22 @@ public class LocalInferencePlugin extends Plugin {
         Bitmap resized = Bitmap.createScaledBitmap(image, resizedWidth, resizedHeight, true);
         canvas.drawBitmap(resized, padX, padY, new Paint(Paint.FILTER_BITMAP_FLAG));
 
-        float[][][] output = new float[1][4 + CARIES_CLASS_COUNT][2100];
+        int[] outputShape = cariesInterpreter.getOutputTensor(0).shape();
+        if (outputShape.length != 3 || outputShape[1] < 5 || outputShape[2] <= 0) {
+            throw new IllegalStateException("Unsupported caries detector output tensor shape.");
+        }
+        int outputChannels = outputShape[1];
+        int candidateCount = outputShape[2];
+        int classCount = outputChannels - 4;
+        float[][][] output = new float[1][outputChannels][candidateCount];
         cariesInterpreter.run(toCariesInputBuffer(letterboxed), output);
         resized.recycle();
         letterboxed.recycle();
 
-        for (int index = 0; index < 2100; index++) {
+        for (int index = 0; index < candidateCount; index++) {
             float bestScore = 0.0f;
             int classIndex = 0;
-            for (int candidate = 0; candidate < CARIES_CLASSES.length; candidate++) {
+            for (int candidate = 0; candidate < classCount; candidate++) {
                 float score = output[0][4 + candidate][index];
                 if (score > bestScore) {
                     bestScore = score;
@@ -256,7 +265,7 @@ public class LocalInferencePlugin extends Plugin {
                 continue;
             }
 
-            String className = CARIES_CLASSES[classIndex];
+            String className = cariesLabel(classIndex);
             if (!isCariesClass(className)) {
                 continue;
             }
@@ -279,13 +288,15 @@ public class LocalInferencePlugin extends Plugin {
     }
 
     private boolean isCariesClass(String className) {
-        return className.equals("cavities")
-            || className.equals("cavity")
-            || className.equals("decay")
-            || className.equals("decaycavity")
-            || className.equals("decayed tooth")
-            || className.equals("earlydecay")
-            || className.equals("tooth-decay");
+        return className.equals("caries");
+    }
+
+    private String classifierLabel(int index) {
+        return index < CLASSES.length ? CLASSES[index] : "class_" + index;
+    }
+
+    private String cariesLabel(int index) {
+        return index < CARIES_CLASSES.length ? CARIES_CLASSES[index] : "class_" + index;
     }
 
     private ByteBuffer toCariesInputBuffer(Bitmap bitmap) {
