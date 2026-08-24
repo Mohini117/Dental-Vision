@@ -117,28 +117,29 @@ If your frontend and backend are hosted separately, set:
 VITE_API_BASE_URL=http://192.168.1.10:8000
 ```
 
-## Prediction priority
+## Prediction arbitration
 
-The UI uses the backend's `screening` object as the final decision.
+The UI uses the shared `DiagnosisResult` arbitration contract as the final decision.
 
-Priority:
+Decision order:
 
 ```text
 1. Image quality
-2. Caries detector if caries_detected = true
-3. Six-class classifier when confident
-4. Uncertain
+2. Detector and classifier agreement
+3. One confident model, with detector preference for localized conditions
+4. Healthy only when both models support it
+5. Uncertain when no condition clears its threshold
 ```
 
 Therefore:
 
 ```text
-YOLO caries detected
+Localized detector finding
     ↓
 Primary UI result = Possible Caries
 ```
 
-while the six-class classifier remains visible as supporting evidence.
+The classifier remains available as non-decisive supporting evidence.
 
 Example:
 

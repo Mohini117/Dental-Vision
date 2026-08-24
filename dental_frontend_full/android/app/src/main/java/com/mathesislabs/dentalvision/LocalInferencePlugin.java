@@ -32,18 +32,26 @@ import java.util.List;
 public class LocalInferencePlugin extends Plugin {
     private static final int INPUT_SIZE = 224;
     private static final int CARIES_INPUT_SIZE = 320;
-    private static final float CARIES_THRESHOLD = 0.50f;
+    private static final float CARIES_THRESHOLD = 0.30f;
     private static final String[] CARIES_CLASSES = {
-        "caries",
-        "non-caries"
+        "black stain",
+        "cavities",
+        "cavity",
+        "decay",
+        "decaycavity",
+        "decayed tooth",
+        "earlydecay",
+        "filling",
+        "healthytooth",
+        "normal",
+        "tooth-decay"
     };
     private static final String[] CLASSES = {
         "Calculus",
-        "Caries",
+        "Dental Caries",
         "Gingivitis",
-        "Ulcers",
-        "Tooth Discoloration",
-        "Hypodontia"
+        "Mouth Ulcer",
+        "Tooth Discoloration"
     };
 
     private Interpreter interpreter;
@@ -265,15 +273,12 @@ public class LocalInferencePlugin extends Plugin {
                 continue;
             }
 
-            String className = cariesLabel(classIndex);
-            if (!isCariesClass(className)) {
-                continue;
-            }
-
-            float centerX = output[0][0][index] * CARIES_INPUT_SIZE;
-            float centerY = output[0][1][index] * CARIES_INPUT_SIZE;
-            float width = output[0][2][index] * CARIES_INPUT_SIZE;
-            float height = output[0][3][index] * CARIES_INPUT_SIZE;
+            String className = canonicalDetectorLabel(cariesLabel(classIndex));
+            // YOLO export boxes are already expressed in 320px input coordinates.
+            float centerX = output[0][0][index];
+            float centerY = output[0][1][index];
+            float width = output[0][2][index];
+            float height = output[0][3][index];
             float x1 = clamp((centerX - width / 2.0f - padX) / scale, 0.0f, image.getWidth());
             float y1 = clamp((centerY - height / 2.0f - padY) / scale, 0.0f, image.getHeight());
             float x2 = clamp((centerX + width / 2.0f - padX) / scale, 0.0f, image.getWidth());
@@ -287,16 +292,24 @@ public class LocalInferencePlugin extends Plugin {
         return applyNms(detections);
     }
 
-    private boolean isCariesClass(String className) {
-        return className.equals("caries");
-    }
-
     private String classifierLabel(int index) {
         return index < CLASSES.length ? CLASSES[index] : "class_" + index;
     }
 
     private String cariesLabel(int index) {
         return index < CARIES_CLASSES.length ? CARIES_CLASSES[index] : "class_" + index;
+    }
+
+    private String canonicalDetectorLabel(String label) {
+        if (label.equals("cavities") || label.equals("cavity") || label.equals("decay")
+                || label.equals("decaycavity") || label.equals("decayed tooth")
+                || label.equals("earlydecay") || label.equals("tooth-decay")) {
+            return "cavity_or_decay";
+        }
+        if (label.equals("black stain")) return "surface_stain";
+        if (label.equals("filling")) return "filling";
+        if (label.equals("healthytooth") || label.equals("normal")) return "healthy";
+        return label;
     }
 
     private ByteBuffer toCariesInputBuffer(Bitmap bitmap) {

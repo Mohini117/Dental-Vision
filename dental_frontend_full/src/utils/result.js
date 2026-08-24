@@ -17,6 +17,16 @@ export function pct(value) {
 }
 
 export function getPrimaryFinding(result) {
+  if (result?.findings?.length > 0) {
+    const finding = result.findings[0];
+    return {
+      label: normalizeCondition(finding.condition),
+      confidence: Number(finding.confidence ?? 0),
+      status: result.status || "uncertain",
+      source: finding.source || "decision",
+    };
+  }
+
   // The backend screening decision is authoritative for the UI.
   if (result?.screening?.primary_condition) {
     return {
@@ -67,6 +77,8 @@ export function getConfidenceLevel(confidence) {
 }
 
 export function getPrimaryMessage(result) {
+  if (result?.message) return result.message;
+
   const finding = getPrimaryFinding(result);
   const confidence = finding.confidence;
 

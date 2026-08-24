@@ -179,9 +179,9 @@ export default function App() {
             <p>
               Capture an intraoral photo or upload
               one from your phone. The system checks
-              for possible caries using a localized
-              detector and evaluates broader oral
-              conditions with a six-class classifier.
+              for possible dental conditions using a
+              localized detector and evaluates broader
+              oral conditions with a five-class classifier.
             </p>
           </div>
 
@@ -196,7 +196,7 @@ export default function App() {
               </strong>
 
               <span>
-                Localized caries detection +
+                Localized dental detection +
                 general condition classification
               </span>
             </div>
@@ -324,10 +324,9 @@ export default function App() {
 
                 <p>
                   After analysis, the primary
-                  result will prioritize a
-                  sufficiently confident caries
-                  detection. Otherwise the general
-                  six-class classifier will be used.
+                  result will show one arbitrated
+                  screening finding when either model
+                  is sufficiently confident.
                 </p>
               </div>
             )}
