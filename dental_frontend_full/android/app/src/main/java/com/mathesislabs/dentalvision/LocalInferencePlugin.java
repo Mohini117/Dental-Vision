@@ -105,7 +105,7 @@ public class LocalInferencePlugin extends Plugin {
             }
 
             assertInputShape(interpreter, new int[] {1, INPUT_SIZE, INPUT_SIZE, 3}, "classifier");
-            assertInputShape(cariesInterpreter, new int[] {1, CARIES_INPUT_SIZE, CARIES_INPUT_SIZE, 3}, "detector");
+            assertDetectorInputShape(cariesInterpreter);
             List<Detection> detections = detectCaries(original, TEETH_GATE_THRESHOLD);
             if (detections.isEmpty()) {
                 call.resolve(noTeethResponse(original));
@@ -298,7 +298,7 @@ public class LocalInferencePlugin extends Plugin {
         int candidateCount = outputShape[2];
         int classCount = outputChannels - 4;
         float[][][] output = new float[1][outputChannels][candidateCount];
-        cariesInterpreter.run(toInputBuffer(letterboxed, CARIES_INPUT_SIZE, true, "detector"), output);
+        cariesInterpreter.run(toDetectorInputBuffer(letterboxed), output);
         resized.recycle();
         letterboxed.recycle();
 
@@ -351,6 +351,45 @@ public class LocalInferencePlugin extends Plugin {
         canvas.drawBitmap(resized, padX, padY, new Paint(Paint.FILTER_BITMAP_FLAG));
         resized.recycle();
         return result;
+    }
+
+    private void assertDetectorInputShape(Interpreter model) {
+        int[] actual = model.getInputTensor(0).shape();
+        int[] nhwc = new int[] {1, CARIES_INPUT_SIZE, CARIES_INPUT_SIZE, 3};
+        int[] nchw = new int[] {1, 3, CARIES_INPUT_SIZE, CARIES_INPUT_SIZE};
+        if (!Arrays.equals(actual, nhwc) && !Arrays.equals(actual, nchw)) {
+            String message = "detector input shape mismatch: " + Arrays.toString(actual);
+            Log.e(TAG, message);
+            throw new IllegalStateException(message);
+        }
+    }
+
+    private ByteBuffer toDetectorInputBuffer(Bitmap bitmap) {
+        ByteBuffer input = ByteBuffer.allocateDirect(CARIES_INPUT_SIZE * CARIES_INPUT_SIZE * 3 * 4)
+            .order(ByteOrder.nativeOrder());
+        float minimum = Float.POSITIVE_INFINITY;
+        float maximum = Float.NEGATIVE_INFINITY;
+        double total = 0.0;
+        for (int channel = 0; channel < 3; channel++) {
+            for (int y = 0; y < CARIES_INPUT_SIZE; y++) {
+                for (int x = 0; x < CARIES_INPUT_SIZE; x++) {
+                    int pixel = bitmap.getPixel(x, y);
+                    int value = channel == 0 ? Color.red(pixel)
+                        : channel == 1 ? Color.green(pixel) : Color.blue(pixel);
+                    float normalized = value / 255.0f;
+                    input.putFloat(normalized);
+                    minimum = Math.min(minimum, normalized);
+                    maximum = Math.max(maximum, normalized);
+                    total += normalized;
+                }
+            }
+        }
+        double mean = total / (CARIES_INPUT_SIZE * CARIES_INPUT_SIZE * 3.0);
+        Log.d(TAG, "detector tensor: shape=[1,3," + CARIES_INPUT_SIZE + ","
+            + CARIES_INPUT_SIZE + "], dtype=float32, min=" + minimum
+            + ", max=" + maximum + ", mean=" + mean);
+        input.rewind();
+        return input;
     }
 
     private JSObject noTeethResponse(Bitmap image) throws Exception {
