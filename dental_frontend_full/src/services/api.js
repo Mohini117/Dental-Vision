@@ -1,4 +1,6 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
+import { Directory, Filesystem } from "@capacitor/filesystem";
+import { scanTeeth } from "../inference/scanTeeth";
 import { arbitrate, DISCLAIMER } from "../inference/arbitrate";
 import { mapClassifierLabel, mapYoloLabel } from "../inference/canonicalLabels";
 import { CONFIDENCE_THRESHOLDS } from "../inference/thresholds";
@@ -51,21 +53,14 @@ function adaptResult(raw, gate) {
     probabilities: canonicalProbabilities,
     rawLabel: classifierLabel,
   };
-  const diagnosis = gate?.diagnosis || (raw?.status === "retake_photo"
-    ? {
-        status: "retake_photo",
-        findings: [],
-        message: raw.message || "Please take or upload a clear, well-lit close-up of the teeth.",
-        disclaimer: DISCLAIMER,
-      }
-    : raw?.status === "no_teeth"
-    ? {
-        status: "no_teeth",
-        findings: [],
-        message: raw.message || "Please provide a clear teeth-related image to continue.",
-        disclaimer: DISCLAIMER,
-      }
-    : arbitrate(detections, classification));
+  const topDetection = detections[0];
+  const detector = {
+    detections,
+    topCanonicalClass: topDetection?.condition || "healthy",
+    topConfidence: topDetection?.confidence || 0,
+    topBox: topDetection?.boundingBox,
+  };
+  const diagnosis = gate?.diagnosis || arbitrate(detector, classification);
   const quality = {
     ...(raw?.image_quality || {}),
     ...(gate?.metrics || {}),
@@ -124,12 +119,60 @@ async function logInference(file, raw, result, gate) {
 }
 
 export async function analyzeImage(file) {
-  let raw;
   if (Capacitor.isNativePlatform()) {
-    raw = await LocalInference.analyze({
-      imageBase64: await readAsBase64(file),
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const imageDataUrl = await readAsBase64(file);
+    const imageBase64 = imageDataUrl.replace(/^data:[^;]+;base64,/, "");
+    const temporaryPath = `dental-scan-${Date.now()}.jpg`;
+    const { uri } = await Filesystem.writeFile({
+      path: temporaryPath,
+      data: imageBase64,
+      directory: Directory.Cache,
     });
+    try {
+      let rawPromise;
+      const getRaw = (crop) => {
+        if (!rawPromise) {
+          rawPromise = LocalInference.analyze({ imageBase64: crop });
+        }
+        return rawPromise;
+      };
+      const result = await scanTeeth(
+        { path: uri, width: bitmap.width, height: bitmap.height, source: file },
+        {
+          runDetector: async (crop) => {
+            const raw = await getRaw(crop);
+            const adapted = adaptResult(raw, null);
+            const detection = adapted.caries_detections[0];
+            return {
+              detections: adapted.caries_detections,
+              topCanonicalClass: detection?.class_name || "healthy",
+              topConfidence: detection?.confidence || 0,
+              topBox: detection ? [detection.bbox.x1, detection.bbox.y1, detection.bbox.x2, detection.bbox.y2] : undefined,
+            };
+          },
+          runClassifier: async (crop) => {
+            const raw = await getRaw(crop);
+            const adapted = adaptResult(raw, null);
+            return {
+              condition: mapClassifierLabel(adapted.classifier.top_prediction) || "healthy",
+              confidence: Number(adapted.classifier.confidence || 0),
+              probabilities: adapted.classifier.probabilities,
+            };
+          },
+        },
+      );
+      const normalized = rawPromise
+        ? adaptResult(await rawPromise, { diagnosis: result, passed: true })
+        : result;
+      await logInference(file, {}, normalized, { passed: true });
+      return normalized;
+    } finally {
+      bitmap.close();
+      await Filesystem.deleteFile({ path: temporaryPath, directory: Directory.Cache }).catch(() => {});
+    }
   } else {
+    let raw;
     const formData = new FormData();
     formData.append("file", file);
     const response = await fetch("/api/predict", { method: "POST", body: formData });

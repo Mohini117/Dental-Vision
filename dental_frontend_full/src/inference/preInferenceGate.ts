@@ -18,7 +18,7 @@ const MIN_LUMINANCE = 22;
 const MAX_LUMINANCE = 238;
 const MIN_SUBJECT_SCORE = 0.08;
 
-function failedResult(status: "no_teeth" | "retake_photo", message: string): DiagnosisResult {
+function failedResult(status: "no_face" | "not_close_up", message: string): DiagnosisResult {
   return { status, findings: [], message, disclaimer: DISCLAIMER };
 }
 
@@ -34,7 +34,7 @@ export async function runPreInferenceGate(file: Blob): Promise<GateResult> {
     return {
       passed: false,
       metrics: { blurScore: 0, meanLuminance: 0, subjectScore: 0 },
-      diagnosis: failedResult("retake_photo", "We couldn't inspect this image. Please retake the photo."),
+      diagnosis: failedResult("not_close_up", "Please capture a close-up of your teeth — move closer or zoom in."),
     };
   }
 
@@ -75,7 +75,7 @@ export async function runPreInferenceGate(file: Blob): Promise<GateResult> {
     return {
       passed: false,
       metrics,
-      diagnosis: failedResult("retake_photo", "This image is too dark, bright, or blurry. Please retake the photo with even lighting and better focus."),
+      diagnosis: failedResult("not_close_up", "Please capture a close-up of your teeth — move closer or zoom in."),
     };
   }
 
@@ -83,7 +83,7 @@ export async function runPreInferenceGate(file: Blob): Promise<GateResult> {
     return {
       passed: false,
       metrics,
-      diagnosis: failedResult("no_teeth", "Please provide a teeth-related image to continue."),
+      diagnosis: failedResult("no_face", "No face detected. Please take a clear photo of your teeth or mouth."),
     };
   }
 

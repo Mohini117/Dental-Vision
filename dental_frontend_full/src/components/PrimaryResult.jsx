@@ -19,9 +19,9 @@ export default function PrimaryResult({ result }) {
   );
 
   const icon =
-    result?.status === "possible_caries" ? (
+    result?.status === "finding" ? (
       <Crosshair size={19} />
-    ) : result?.status === "prediction" ? (
+    ) : result?.status === "healthy" ? (
       <CheckCircle2 size={19} />
     ) : (
       <AlertCircle size={19} />

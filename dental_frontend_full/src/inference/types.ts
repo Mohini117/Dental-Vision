@@ -11,8 +11,8 @@ export enum Condition {
 }
 
 export type DiagnosisStatus =
-  | "no_teeth"
-  | "retake_photo"
+  | "no_face"
+  | "not_close_up"
   | "healthy"
   | "finding"
   | "uncertain";
