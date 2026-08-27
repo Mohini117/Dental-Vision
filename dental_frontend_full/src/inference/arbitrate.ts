@@ -18,6 +18,7 @@ function findingMessage(condition: Condition): string {
     [Condition.GINGIVITIS]: "gingivitis",
     [Condition.MOUTH_ULCER]: "a mouth ulcer",
     [Condition.DISCOLORATION]: "tooth discoloration",
+    [Condition.HYPODONTIA]: "possible missing teeth",
   };
   return labels[condition];
 }

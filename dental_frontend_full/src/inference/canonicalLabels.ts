@@ -29,7 +29,7 @@ export const CLASSIFIER_LABEL_MAP: Record<string, Condition> = {
   "Tooth Discoloration": Condition.DISCOLORATION,
   Caries: Condition.CAVITY_DECAY,
   Ulcers: Condition.MOUTH_ULCER,
-  Hypodontia: Condition.HEALTHY,
+  Hypodontia: Condition.HYPODONTIA,
 };
 
 function normalizeLabel(value: string): string {

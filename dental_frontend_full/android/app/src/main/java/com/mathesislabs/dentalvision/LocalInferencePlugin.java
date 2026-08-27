@@ -187,21 +187,11 @@ public class LocalInferencePlugin extends Plugin {
     }
 
     private JSObject buildResponse(Bitmap image, float[] rawOutput, List<Detection> detections) throws Exception {
-        float[] probabilities = Arrays.copyOf(rawOutput, rawOutput.length);
-        float total = 0.0f;
+        float[] probabilities = classifierProbabilities(rawOutput);
         int bestIndex = 0;
-
-        for (int index = 0; index < probabilities.length; index++) {
-            probabilities[index] = Math.max(0.0f, Math.min(1.0f, probabilities[index]));
-            total += probabilities[index];
+        for (int index = 1; index < probabilities.length; index++) {
             if (probabilities[index] > probabilities[bestIndex]) {
                 bestIndex = index;
-            }
-        }
-
-        if (total > 0.0f) {
-            for (int index = 0; index < probabilities.length; index++) {
-                probabilities[index] /= total;
             }
         }
 
@@ -267,6 +257,38 @@ public class LocalInferencePlugin extends Plugin {
         return response;
     }
 
+    private float[] classifierProbabilities(float[] rawOutput) {
+        float sum = 0.0f;
+        boolean probabilityVector = true;
+        for (float value : rawOutput) {
+            if (!Float.isFinite(value) || value < 0.0f || value > 1.0f) {
+                probabilityVector = false;
+            }
+            sum += value;
+        }
+
+        if (probabilityVector && sum > 0.0f) {
+            float[] probabilities = Arrays.copyOf(rawOutput, rawOutput.length);
+            for (int index = 0; index < probabilities.length; index++) {
+                probabilities[index] /= sum;
+            }
+            return probabilities;
+        }
+
+        float maximum = Float.NEGATIVE_INFINITY;
+        for (float value : rawOutput) maximum = Math.max(maximum, value);
+        float[] probabilities = new float[rawOutput.length];
+        float exponentialSum = 0.0f;
+        for (int index = 0; index < rawOutput.length; index++) {
+            probabilities[index] = (float) Math.exp(rawOutput[index] - maximum);
+            exponentialSum += probabilities[index];
+        }
+        for (int index = 0; index < probabilities.length; index++) {
+            probabilities[index] /= exponentialSum;
+        }
+        return probabilities;
+    }
+
     private List<Detection> detectCaries(Bitmap image, float threshold) {
         List<Detection> detections = new ArrayList<>();
         if (cariesInterpreter == null) {
@@ -291,13 +313,19 @@ public class LocalInferencePlugin extends Plugin {
         canvas.drawBitmap(resized, padX, padY, new Paint(Paint.FILTER_BITMAP_FLAG));
 
         int[] outputShape = cariesInterpreter.getOutputTensor(0).shape();
-        if (outputShape.length != 3 || outputShape[1] < 5 || outputShape[2] <= 0) {
+        if (outputShape.length != 3 || outputShape[0] != 1) {
             throw new IllegalStateException("Unsupported caries detector output tensor shape.");
         }
-        int outputChannels = outputShape[1];
-        int candidateCount = outputShape[2];
+        boolean channelsFirst = outputShape[1] <= outputShape[2];
+        int outputChannels = channelsFirst ? outputShape[1] : outputShape[2];
+        int candidateCount = channelsFirst ? outputShape[2] : outputShape[1];
+        if (outputChannels < 5 || candidateCount <= 0) {
+            throw new IllegalStateException("Unsupported caries detector output tensor shape: " + Arrays.toString(outputShape));
+        }
         int classCount = outputChannels - 4;
-        float[][][] output = new float[1][outputChannels][candidateCount];
+        float[][][] output = channelsFirst
+            ? new float[1][outputChannels][candidateCount]
+            : new float[1][candidateCount][outputChannels];
         cariesInterpreter.run(toDetectorInputBuffer(letterboxed), output);
         resized.recycle();
         letterboxed.recycle();
@@ -306,7 +334,9 @@ public class LocalInferencePlugin extends Plugin {
             float bestScore = 0.0f;
             int classIndex = 0;
             for (int candidate = 0; candidate < classCount; candidate++) {
-                float score = output[0][4 + candidate][index];
+                float score = channelsFirst
+                    ? output[0][4 + candidate][index]
+                    : output[0][index][4 + candidate];
                 if (score > bestScore) {
                     bestScore = score;
                     classIndex = candidate;
@@ -319,10 +349,10 @@ public class LocalInferencePlugin extends Plugin {
 
             String className = canonicalDetectorLabel(cariesLabel(classIndex));
             // YOLO export boxes are already expressed in 320px input coordinates.
-            float centerX = output[0][0][index];
-            float centerY = output[0][1][index];
-            float width = output[0][2][index];
-            float height = output[0][3][index];
+            float centerX = channelsFirst ? output[0][0][index] : output[0][index][0];
+            float centerY = channelsFirst ? output[0][1][index] : output[0][index][1];
+            float width = channelsFirst ? output[0][2][index] : output[0][index][2];
+            float height = channelsFirst ? output[0][3][index] : output[0][index][3];
             float x1 = clamp((centerX - width / 2.0f - padX) / scale, 0.0f, image.getWidth());
             float y1 = clamp((centerY - height / 2.0f - padY) / scale, 0.0f, image.getHeight());
             float x2 = clamp((centerX + width / 2.0f - padX) / scale, 0.0f, image.getWidth());
@@ -355,9 +385,8 @@ public class LocalInferencePlugin extends Plugin {
 
     private void assertDetectorInputShape(Interpreter model) {
         int[] actual = model.getInputTensor(0).shape();
-        int[] nhwc = new int[] {1, CARIES_INPUT_SIZE, CARIES_INPUT_SIZE, 3};
         int[] nchw = new int[] {1, 3, CARIES_INPUT_SIZE, CARIES_INPUT_SIZE};
-        if (!Arrays.equals(actual, nhwc) && !Arrays.equals(actual, nchw)) {
+        if (!Arrays.equals(actual, nchw)) {
             String message = "detector input shape mismatch: " + Arrays.toString(actual);
             Log.e(TAG, message);
             throw new IllegalStateException(message);

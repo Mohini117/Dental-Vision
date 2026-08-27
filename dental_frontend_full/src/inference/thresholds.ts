@@ -10,6 +10,7 @@ export const CONFIDENCE_THRESHOLDS: Record<Condition, number> = {
   [Condition.GINGIVITIS]: 0.5,
   [Condition.MOUTH_ULCER]: 0.5,
   [Condition.DISCOLORATION]: 0.45,
+  [Condition.HYPODONTIA]: 0.5,
 };
 
 export const MAX_FINDINGS = 2;

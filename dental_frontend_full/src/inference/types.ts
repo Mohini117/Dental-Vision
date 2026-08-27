@@ -7,6 +7,7 @@ export enum Condition {
   GINGIVITIS = "gingivitis",
   MOUTH_ULCER = "mouth_ulcer",
   DISCOLORATION = "discoloration",
+  HYPODONTIA = "hypodontia",
 }
 
 export type DiagnosisStatus =
