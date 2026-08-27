@@ -33,7 +33,7 @@ import java.util.List;
 
 @CapacitorPlugin(name = "LocalInference")
 public class LocalInferencePlugin extends Plugin {
-    private static final int INPUT_SIZE = 224;
+    private static final String CLASSIFIER_MODEL_ASSET = "dental_mobilenetv3_android_approved.tflite";
     private static final int CARIES_INPUT_SIZE = 320;
     private static final float CARIES_THRESHOLD = 0.30f;
     private static final float CLASSIFIER_THRESHOLD = 0.70f;
@@ -59,7 +59,7 @@ public class LocalInferencePlugin extends Plugin {
     public void load() {
         try {
             Interpreter.Options options = cpuOnlyOptions();
-            interpreter = new Interpreter(loadModel("teeth_model.tflite"), options);
+            interpreter = new Interpreter(loadModel(CLASSIFIER_MODEL_ASSET), options);
         } catch (Exception exception) {
             interpreter = null;
             modelLoadError = "classifier: " + exception.getMessage();
@@ -95,9 +95,11 @@ public class LocalInferencePlugin extends Plugin {
                 return;
             }
 
-            assertInputShape(interpreter, new int[] {1, INPUT_SIZE, INPUT_SIZE, 3}, "classifier");
+            int[] classifierInputShape = assertClassifierInputShape(interpreter);
             assertDetectorInputShape(cariesInterpreter);
-            Bitmap resized = Bitmap.createScaledBitmap(original, INPUT_SIZE, INPUT_SIZE, true);
+            int classifierInputSize = classifierInputShape[1];
+            Bitmap resized = Bitmap.createScaledBitmap(
+                original, classifierInputSize, classifierInputSize, true);
             int[] classifierOutputShape = interpreter.getOutputTensor(0).shape();
                 if (classifierOutputShape.length != 2 || classifierOutputShape[0] != 1
                     || classifierOutputShape[1] < 1) {
@@ -106,7 +108,8 @@ public class LocalInferencePlugin extends Plugin {
             }
             int classifierOutputSize = classifierOutputShape[1];
             float[][] output = new float[1][classifierOutputSize];
-            interpreter.run(toInputBuffer(resized, INPUT_SIZE, false, "classifier"), output);
+            interpreter.run(
+                toInputBuffer(resized, classifierInputSize, true, "classifier"), output);
             List<Detection> detections = detectCaries(original, CARIES_THRESHOLD);
 
             JSObject response = buildResponse(original, output[0], detections);
@@ -126,13 +129,16 @@ public class LocalInferencePlugin extends Plugin {
         return options;
     }
 
-    private void assertInputShape(Interpreter model, int[] expected, String modelName) {
+    private int[] assertClassifierInputShape(Interpreter model) {
         int[] actual = model.getInputTensor(0).shape();
-        if (!Arrays.equals(actual, expected)) {
-            String message = modelName + " input shape mismatch: " + Arrays.toString(actual);
+        if (actual.length != 4 || actual[0] != 1 || actual[1] <= 0
+                || actual[1] != actual[2] || actual[3] != 3
+                || model.getInputTensor(0).dataType() != org.tensorflow.lite.DataType.FLOAT32) {
+            String message = "classifier input contract mismatch: " + Arrays.toString(actual);
             Log.e(TAG, message);
             throw new IllegalStateException(message);
         }
+        return actual;
     }
 
     private ByteBuffer loadModel(String assetName) throws IOException {
