@@ -36,20 +36,11 @@ public class LocalInferencePlugin extends Plugin {
     private static final int INPUT_SIZE = 224;
     private static final int CARIES_INPUT_SIZE = 320;
     private static final float CARIES_THRESHOLD = 0.30f;
-    private static final float TEETH_GATE_THRESHOLD = 0.05f;
+    private static final float CLASSIFIER_THRESHOLD = 0.50f;
     private static final String TAG = "LocalInference";
     private static final String[] CARIES_CLASSES = {
-        "black stain",
-        "cavities",
-        "cavity",
-        "decay",
-        "decaycavity",
-        "decayed tooth",
-        "earlydecay",
-        "filling",
-        "healthytooth",
-        "normal",
-        "tooth-decay"
+        "primary_caries",
+        "permanent_caries"
     };
     private static final String[] CLASSES = {
         "Calculus",
@@ -106,20 +97,14 @@ public class LocalInferencePlugin extends Plugin {
 
             assertInputShape(interpreter, new int[] {1, INPUT_SIZE, INPUT_SIZE, 3}, "classifier");
             assertDetectorInputShape(cariesInterpreter);
-            List<Detection> detections = detectCaries(original, TEETH_GATE_THRESHOLD);
-            if (detections.isEmpty()) {
-                call.resolve(noTeethResponse(original));
-                original.recycle();
-                return;
-            }
-
-            Bitmap resized = letterbox(original, INPUT_SIZE, Color.rgb(128, 128, 128));
+            Bitmap resized = Bitmap.createScaledBitmap(original, INPUT_SIZE, INPUT_SIZE, true);
             int classifierOutputSize = interpreter.getOutputTensor(0).shape()[1];
             if (classifierOutputSize <= 0) {
                 throw new IllegalStateException("Classifier output tensor is empty.");
             }
             float[][] output = new float[1][classifierOutputSize];
-            interpreter.run(toInputBuffer(resized, INPUT_SIZE, true, "classifier"), output);
+            interpreter.run(toInputBuffer(resized, INPUT_SIZE, false, "classifier"), output);
+            List<Detection> detections = detectCaries(original, CARIES_THRESHOLD);
 
             JSObject response = buildResponse(original, output[0], detections);
             call.resolve(response);
@@ -163,8 +148,7 @@ public class LocalInferencePlugin extends Plugin {
         float maximum = Float.NEGATIVE_INFINITY;
         double total = 0.0;
 
-        // Both TFLite models receive RGB pixels in NHWC order. Their training
-        // contracts differ: the classifier uses raw RGB, YOLO uses [0, 1].
+        // The classifier receives RGB pixels in NHWC order as raw 0..255 floats.
         for (int y = 0; y < targetSize; y++) {
             for (int x = 0; x < targetSize; x++) {
                 int pixel = bitmap.getPixel(x, y);
@@ -196,7 +180,7 @@ public class LocalInferencePlugin extends Plugin {
         }
 
         float confidence = probabilities[bestIndex];
-        boolean confident = confidence >= 0.70f;
+        boolean confident = confidence >= CLASSIFIER_THRESHOLD;
         Detection strongestCaries = detections.isEmpty() ? null : detections.get(0);
         boolean cariesDetected = strongestCaries != null;
         JSONObject classifier = new JSONObject();
@@ -419,20 +403,6 @@ public class LocalInferencePlugin extends Plugin {
             + ", max=" + maximum + ", mean=" + mean);
         input.rewind();
         return input;
-    }
-
-    private JSObject noTeethResponse(Bitmap image) throws Exception {
-        JSObject response = new JSObject();
-        response.put("status", "no_teeth");
-        response.put("message", "Please provide a clear teeth-related image to continue.");
-        response.put("caries_detected", false);
-        response.put("caries_detections", new JSONArray());
-        response.put("classifier", JSONObject.NULL);
-        response.put("image_quality", new JSONObject()
-            .put("width", image.getWidth())
-            .put("height", image.getHeight())
-            .put("acceptable", true));
-        return response;
     }
 
     private String classifierLabel(int index) {

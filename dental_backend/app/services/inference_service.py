@@ -8,8 +8,6 @@ from app.services.caries_detector import CariesDetector
 from app.services.condition_classifier import ConditionClassifier
 from app.utils.image_validation import assess_image_quality
 
-TEETH_GATE_CONFIDENCE_THRESHOLD = 0.05
-
 
 class InferenceService:
     def __init__(
@@ -28,30 +26,6 @@ class InferenceService:
         all_caries_detections = (
             self.caries_detector.predict(image)
         )
-
-        if not quality["acceptable"]:
-            return self._quality_failure(quality, start)
-
-        if not any(
-            detection["confidence"] >= TEETH_GATE_CONFIDENCE_THRESHOLD
-            for detection in all_caries_detections
-        ):
-            elapsed_ms = (time.perf_counter() - start) * 1000.0
-            return {
-                "status": "no_teeth",
-                "screening": {
-                    "primary_condition": None,
-                    "confidence": 0.0,
-                    "status": "no_teeth",
-                },
-                "classifier": None,
-                "caries_detected": False,
-                "caries_confidence": 0.0,
-                "caries_detections": [],
-                "image_quality": quality,
-                "processing_time_ms": round(elapsed_ms, 2),
-                "message": "Please provide a clear teeth-related image to continue.",
-            }
 
         classifier_result = self.classifier.predict(image)
 

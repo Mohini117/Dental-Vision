@@ -1,7 +1,6 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import { arbitrate, DISCLAIMER } from "../inference/arbitrate";
 import { mapClassifierLabel, mapYoloLabel } from "../inference/canonicalLabels";
-import { runPreInferenceGate } from "../inference/preInferenceGate";
 import { CONFIDENCE_THRESHOLDS } from "../inference/thresholds";
 
 const LocalInference = registerPlugin("LocalInference");
@@ -118,9 +117,6 @@ async function logInference(file, raw, result, gate) {
 }
 
 export async function analyzeImage(file) {
-  const gate = await runPreInferenceGate(file);
-  if (!gate.passed) return gate.diagnosis;
-
   let raw;
   if (Capacitor.isNativePlatform()) {
     raw = await LocalInference.analyze({
@@ -140,7 +136,7 @@ export async function analyzeImage(file) {
     }
   }
 
-  const result = adaptResult(raw, gate);
-  await logInference(file, raw, result, gate.metrics);
+  const result = adaptResult(raw, null);
+  await logInference(file, raw, result, null);
   return result;
 }
