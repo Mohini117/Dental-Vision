@@ -44,10 +44,11 @@ public class LocalInferencePlugin extends Plugin {
     };
     private static final String[] CLASSES = {
         "Calculus",
-        "Dental Caries",
+        "Caries",
         "Gingivitis",
-        "Mouth Ulcer",
-        "Tooth Discoloration"
+        "Ulcers",
+        "Tooth Discoloration",
+        "Hypodontia"
     };
 
     private Interpreter interpreter;
@@ -98,7 +99,8 @@ public class LocalInferencePlugin extends Plugin {
             assertDetectorInputShape(cariesInterpreter);
             Bitmap resized = letterbox(original, INPUT_SIZE, Color.rgb(128, 128, 128));
             int[] classifierOutputShape = interpreter.getOutputTensor(0).shape();
-            if (!Arrays.equals(classifierOutputShape, new int[] {1, CLASSES.length})) {
+                if (classifierOutputShape.length != 2 || classifierOutputShape[0] != 1
+                    || classifierOutputShape[1] < 1) {
                 throw new IllegalStateException("Classifier output shape mismatch: "
                     + Arrays.toString(classifierOutputShape));
             }
