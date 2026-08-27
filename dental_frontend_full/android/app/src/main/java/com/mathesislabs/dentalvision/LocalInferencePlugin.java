@@ -97,7 +97,7 @@ public class LocalInferencePlugin extends Plugin {
 
             assertInputShape(interpreter, new int[] {1, INPUT_SIZE, INPUT_SIZE, 3}, "classifier");
             assertDetectorInputShape(cariesInterpreter);
-            Bitmap resized = letterbox(original, INPUT_SIZE, Color.rgb(128, 128, 128));
+            Bitmap resized = Bitmap.createScaledBitmap(original, INPUT_SIZE, INPUT_SIZE, true);
             int[] classifierOutputShape = interpreter.getOutputTensor(0).shape();
                 if (classifierOutputShape.length != 2 || classifierOutputShape[0] != 1
                     || classifierOutputShape[1] < 1) {
@@ -106,7 +106,7 @@ public class LocalInferencePlugin extends Plugin {
             }
             int classifierOutputSize = classifierOutputShape[1];
             float[][] output = new float[1][classifierOutputSize];
-            interpreter.run(toInputBuffer(resized, INPUT_SIZE, true, "classifier"), output);
+            interpreter.run(toInputBuffer(resized, INPUT_SIZE, false, "classifier"), output);
             List<Detection> detections = detectCaries(original, CARIES_THRESHOLD);
 
             JSObject response = buildResponse(original, output[0], detections);
