@@ -107,7 +107,7 @@ class InferenceService:
 
         else:
 
-            overall_status = "uncertain"
+            overall_status = "retake_photo"
 
             primary_condition = None
 
@@ -116,8 +116,8 @@ class InferenceService:
             )
 
             message = (
-                "The models could not determine the "
-                "condition reliably from this image."
+                "The image was not clear enough for a reliable classification. "
+                "Please take or upload a clear, well-lit close-up of the teeth."
             )
 
         elapsed_ms = (

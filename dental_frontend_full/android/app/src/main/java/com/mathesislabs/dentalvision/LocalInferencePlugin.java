@@ -36,7 +36,7 @@ public class LocalInferencePlugin extends Plugin {
     private static final int INPUT_SIZE = 224;
     private static final int CARIES_INPUT_SIZE = 320;
     private static final float CARIES_THRESHOLD = 0.30f;
-    private static final float CLASSIFIER_THRESHOLD = 0.50f;
+    private static final float CLASSIFIER_THRESHOLD = 0.70f;
     private static final String TAG = "LocalInference";
     private static final String[] CARIES_CLASSES = {
         "primary_caries",
@@ -47,8 +47,7 @@ public class LocalInferencePlugin extends Plugin {
         "Dental Caries",
         "Gingivitis",
         "Mouth Ulcer",
-        "Tooth Discoloration",
-        "Hypodontia"
+        "Tooth Discoloration"
     };
 
     private Interpreter interpreter;
@@ -98,10 +97,12 @@ public class LocalInferencePlugin extends Plugin {
             assertInputShape(interpreter, new int[] {1, INPUT_SIZE, INPUT_SIZE, 3}, "classifier");
             assertDetectorInputShape(cariesInterpreter);
             Bitmap resized = letterbox(original, INPUT_SIZE, Color.rgb(128, 128, 128));
-            int classifierOutputSize = interpreter.getOutputTensor(0).shape()[1];
-            if (classifierOutputSize <= 0) {
-                throw new IllegalStateException("Classifier output tensor is empty.");
+            int[] classifierOutputShape = interpreter.getOutputTensor(0).shape();
+            if (!Arrays.equals(classifierOutputShape, new int[] {1, CLASSES.length})) {
+                throw new IllegalStateException("Classifier output shape mismatch: "
+                    + Arrays.toString(classifierOutputShape));
             }
+            int classifierOutputSize = classifierOutputShape[1];
             float[][] output = new float[1][classifierOutputSize];
             interpreter.run(toInputBuffer(resized, INPUT_SIZE, true, "classifier"), output);
             List<Detection> detections = detectCaries(original, CARIES_THRESHOLD);
@@ -203,7 +204,7 @@ public class LocalInferencePlugin extends Plugin {
         } else if (cariesDetected) {
             status = "possible_caries";
         } else {
-            status = confident ? "prediction" : "uncertain";
+            status = confident ? "prediction" : "retake_photo";
         }
 
         JSObject response = new JSObject();
@@ -237,7 +238,9 @@ public class LocalInferencePlugin extends Plugin {
         response.put("processing_time_ms", 0.0);
         response.put("message", cariesDetected
             ? "Possible caries was detected by the on-device localized caries model. Professional dental assessment is recommended."
-            : "This is an on-device AI-assisted screening result, not a definitive dental diagnosis.");
+            : confident
+                ? "This is an on-device AI-assisted screening result, not a definitive dental diagnosis."
+                : "The image was not clear enough for a reliable classification. Please take or upload a clear, well-lit close-up of the teeth.");
         return response;
     }
 

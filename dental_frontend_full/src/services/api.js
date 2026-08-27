@@ -51,7 +51,14 @@ function adaptResult(raw, gate) {
     probabilities: canonicalProbabilities,
     rawLabel: classifierLabel,
   };
-  const diagnosis = gate?.diagnosis || (raw?.status === "no_teeth"
+  const diagnosis = gate?.diagnosis || (raw?.status === "retake_photo"
+    ? {
+        status: "retake_photo",
+        findings: [],
+        message: raw.message || "Please take or upload a clear, well-lit close-up of the teeth.",
+        disclaimer: DISCLAIMER,
+      }
+    : raw?.status === "no_teeth"
     ? {
         status: "no_teeth",
         findings: [],
