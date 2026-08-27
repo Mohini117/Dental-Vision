@@ -36,6 +36,7 @@ public class LocalInferencePlugin extends Plugin {
     private static final int INPUT_SIZE = 224;
     private static final int CARIES_INPUT_SIZE = 320;
     private static final float CARIES_THRESHOLD = 0.30f;
+    private static final float TEETH_GATE_THRESHOLD = 0.05f;
     private static final String TAG = "LocalInference";
     private static final String[] CARIES_CLASSES = {
         "black stain",
@@ -55,7 +56,8 @@ public class LocalInferencePlugin extends Plugin {
         "Dental Caries",
         "Gingivitis",
         "Mouth Ulcer",
-        "Tooth Discoloration"
+        "Tooth Discoloration",
+        "Hypodontia"
     };
 
     private Interpreter interpreter;
@@ -65,13 +67,15 @@ public class LocalInferencePlugin extends Plugin {
     @Override
     public void load() {
         try {
-            interpreter = new Interpreter(loadModel("teeth_model.tflite"));
+            Interpreter.Options options = cpuOnlyOptions();
+            interpreter = new Interpreter(loadModel("teeth_model.tflite"), options);
         } catch (Exception exception) {
             interpreter = null;
             modelLoadError = "classifier: " + exception.getMessage();
         }
         try {
-            cariesInterpreter = new Interpreter(loadModel("yolov8_100.tflite"));
+            Interpreter.Options options = cpuOnlyOptions();
+            cariesInterpreter = new Interpreter(loadModel("yolov8_100.tflite"), options);
         } catch (Exception exception) {
             cariesInterpreter = null;
             modelLoadError = modelLoadError == null
@@ -100,14 +104,22 @@ public class LocalInferencePlugin extends Plugin {
                 return;
             }
 
-            Bitmap resized = Bitmap.createScaledBitmap(original, INPUT_SIZE, INPUT_SIZE, true);
+            assertInputShape(interpreter, new int[] {1, INPUT_SIZE, INPUT_SIZE, 3}, "classifier");
+            assertInputShape(cariesInterpreter, new int[] {1, CARIES_INPUT_SIZE, CARIES_INPUT_SIZE, 3}, "detector");
+            List<Detection> detections = detectCaries(original, TEETH_GATE_THRESHOLD);
+            if (detections.isEmpty()) {
+                call.resolve(noTeethResponse(original));
+                original.recycle();
+                return;
+            }
+
+            Bitmap resized = letterbox(original, INPUT_SIZE, Color.rgb(128, 128, 128));
             int classifierOutputSize = interpreter.getOutputTensor(0).shape()[1];
             if (classifierOutputSize <= 0) {
                 throw new IllegalStateException("Classifier output tensor is empty.");
             }
             float[][] output = new float[1][classifierOutputSize];
-            interpreter.run(toInputBuffer(resized, INPUT_SIZE, false, "classifier"), output);
-            List<Detection> detections = detectCaries(original);
+            interpreter.run(toInputBuffer(resized, INPUT_SIZE, true, "classifier"), output);
 
             JSObject response = buildResponse(original, output[0], detections);
             call.resolve(response);
@@ -116,6 +128,22 @@ public class LocalInferencePlugin extends Plugin {
             original.recycle();
         } catch (Exception exception) {
             call.reject("Local inference failed: " + exception.getMessage());
+        }
+    }
+
+    private Interpreter.Options cpuOnlyOptions() {
+        Interpreter.Options options = new Interpreter.Options();
+        options.setUseNNAPI(false);
+        options.setNumThreads(4);
+        return options;
+    }
+
+    private void assertInputShape(Interpreter model, int[] expected, String modelName) {
+        int[] actual = model.getInputTensor(0).shape();
+        if (!Arrays.equals(actual, expected)) {
+            String message = modelName + " input shape mismatch: " + Arrays.toString(actual);
+            Log.e(TAG, message);
+            throw new IllegalStateException(message);
         }
     }
 
@@ -239,7 +267,7 @@ public class LocalInferencePlugin extends Plugin {
         return response;
     }
 
-    private List<Detection> detectCaries(Bitmap image) {
+    private List<Detection> detectCaries(Bitmap image, float threshold) {
         List<Detection> detections = new ArrayList<>();
         if (cariesInterpreter == null) {
             return detections;
@@ -258,7 +286,7 @@ public class LocalInferencePlugin extends Plugin {
             CARIES_INPUT_SIZE,
             Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(letterboxed);
-        canvas.drawColor(Color.BLACK);
+        canvas.drawColor(Color.rgb(128, 128, 128));
         Bitmap resized = Bitmap.createScaledBitmap(image, resizedWidth, resizedHeight, true);
         canvas.drawBitmap(resized, padX, padY, new Paint(Paint.FILTER_BITMAP_FLAG));
 
@@ -285,7 +313,7 @@ public class LocalInferencePlugin extends Plugin {
                 }
             }
 
-            if (bestScore < CARIES_THRESHOLD) {
+            if (bestScore < threshold) {
                 continue;
             }
 
@@ -306,6 +334,37 @@ public class LocalInferencePlugin extends Plugin {
 
         detections.sort(Comparator.comparingDouble((Detection detection) -> detection.confidence).reversed());
         return applyNms(detections);
+    }
+
+    private Bitmap letterbox(Bitmap image, int targetSize, int fillColor) {
+        float scale = Math.min(
+            (float) targetSize / image.getWidth(),
+            (float) targetSize / image.getHeight());
+        int resizedWidth = Math.max(1, Math.round(image.getWidth() * scale));
+        int resizedHeight = Math.max(1, Math.round(image.getHeight() * scale));
+        int padX = (targetSize - resizedWidth) / 2;
+        int padY = (targetSize - resizedHeight) / 2;
+        Bitmap result = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(result);
+        canvas.drawColor(fillColor);
+        Bitmap resized = Bitmap.createScaledBitmap(image, resizedWidth, resizedHeight, true);
+        canvas.drawBitmap(resized, padX, padY, new Paint(Paint.FILTER_BITMAP_FLAG));
+        resized.recycle();
+        return result;
+    }
+
+    private JSObject noTeethResponse(Bitmap image) throws Exception {
+        JSObject response = new JSObject();
+        response.put("status", "no_teeth");
+        response.put("message", "Please provide a clear teeth-related image to continue.");
+        response.put("caries_detected", false);
+        response.put("caries_detections", new JSONArray());
+        response.put("classifier", JSONObject.NULL);
+        response.put("image_quality", new JSONObject()
+            .put("width", image.getWidth())
+            .put("height", image.getHeight())
+            .put("acceptable", true));
+        return response;
     }
 
     private String classifierLabel(int index) {

@@ -1,5 +1,5 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
-import { arbitrate } from "../inference/arbitrate";
+import { arbitrate, DISCLAIMER } from "../inference/arbitrate";
 import { mapClassifierLabel, mapYoloLabel } from "../inference/canonicalLabels";
 import { runPreInferenceGate } from "../inference/preInferenceGate";
 import { CONFIDENCE_THRESHOLDS } from "../inference/thresholds";
@@ -52,7 +52,14 @@ function adaptResult(raw, gate) {
     probabilities: canonicalProbabilities,
     rawLabel: classifierLabel,
   };
-  const diagnosis = gate?.diagnosis || arbitrate(detections, classification);
+  const diagnosis = gate?.diagnosis || (raw?.status === "no_teeth"
+    ? {
+        status: "no_teeth",
+        findings: [],
+        message: raw.message || "Please provide a clear teeth-related image to continue.",
+        disclaimer: DISCLAIMER,
+      }
+    : arbitrate(detections, classification));
   const quality = {
     ...(raw?.image_quality || {}),
     ...(gate?.metrics || {}),

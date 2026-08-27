@@ -48,7 +48,7 @@ export async function preprocessImageWithTransform(
     throw new Error("Could not create an image processing context.");
   }
 
-  context.fillStyle = "#000000";
+  context.fillStyle = "rgb(128, 128, 128)";
   context.fillRect(0, 0, targetSize, targetSize);
   context.drawImage(bitmap, padX, padY, width, height);
   bitmap.close();

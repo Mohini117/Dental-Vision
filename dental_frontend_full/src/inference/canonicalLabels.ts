@@ -6,6 +6,8 @@ export const YOLO_LABEL_MAP: Record<string, Condition> = {
   surface_stain: Condition.STAIN,
   "surface stain": Condition.STAIN,
   cavities: Condition.CAVITY_DECAY,
+  primary_caries: Condition.CAVITY_DECAY,
+  permanent_caries: Condition.CAVITY_DECAY,
   cavity: Condition.CAVITY_DECAY,
   decay: Condition.CAVITY_DECAY,
   decaycavity: Condition.CAVITY_DECAY,
@@ -25,6 +27,9 @@ export const CLASSIFIER_LABEL_MAP: Record<string, Condition> = {
   Gingivitis: Condition.GINGIVITIS,
   "Mouth Ulcer": Condition.MOUTH_ULCER,
   "Tooth Discoloration": Condition.DISCOLORATION,
+  Caries: Condition.CAVITY_DECAY,
+  Ulcers: Condition.MOUTH_ULCER,
+  Hypodontia: Condition.HEALTHY,
 };
 
 function normalizeLabel(value: string): string {
@@ -36,7 +41,10 @@ export function mapYoloLabel(label: string): Condition | undefined {
 }
 
 export function mapClassifierLabel(label: string): Condition | undefined {
-  return CLASSIFIER_LABEL_MAP[label.trim()];
+  const trimmed = label.trim();
+  return CLASSIFIER_LABEL_MAP[trimmed] || CLASSIFIER_LABEL_MAP[
+    trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase()
+  ];
 }
 
 export function mapCanonicalLabel(

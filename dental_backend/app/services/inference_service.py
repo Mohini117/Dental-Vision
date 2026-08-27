@@ -8,6 +8,8 @@ from app.services.caries_detector import CariesDetector
 from app.services.condition_classifier import ConditionClassifier
 from app.utils.image_validation import assess_image_quality
 
+TEETH_GATE_CONFIDENCE_THRESHOLD = 0.05
+
 
 class InferenceService:
     def __init__(
@@ -23,14 +25,35 @@ class InferenceService:
 
         quality = assess_image_quality(image)
 
-        # ---------------------------------------------------------
-        # Run both models
-        # ---------------------------------------------------------
-        classifier_result = self.classifier.predict(image)
-
         all_caries_detections = (
             self.caries_detector.predict(image)
         )
+
+        if not quality["acceptable"]:
+            return self._quality_failure(quality, start)
+
+        if not any(
+            detection["confidence"] >= TEETH_GATE_CONFIDENCE_THRESHOLD
+            for detection in all_caries_detections
+        ):
+            elapsed_ms = (time.perf_counter() - start) * 1000.0
+            return {
+                "status": "no_teeth",
+                "screening": {
+                    "primary_condition": None,
+                    "confidence": 0.0,
+                    "status": "no_teeth",
+                },
+                "classifier": None,
+                "caries_detected": False,
+                "caries_confidence": 0.0,
+                "caries_detections": [],
+                "image_quality": quality,
+                "processing_time_ms": round(elapsed_ms, 2),
+                "message": "Please provide a clear teeth-related image to continue.",
+            }
+
+        classifier_result = self.classifier.predict(image)
 
         # ---------------------------------------------------------
         # Keep only detections above the configured threshold
@@ -75,19 +98,7 @@ class InferenceService:
         # 4. Uncertain
         # ---------------------------------------------------------
 
-        if not quality["acceptable"]:
-
-            overall_status = "poor_image_quality"
-            primary_condition = None
-            primary_confidence = 0.0
-
-            message = (
-                "The image quality may reduce reliability. "
-                "Please retake the photograph with better "
-                "lighting, focus, and framing."
-            )
-
-        elif caries_detected:
+        if caries_detected:
 
             # IMPORTANT:
             # Caries takes priority over the general classifier.
@@ -166,5 +177,28 @@ class InferenceService:
                 2,
             ),
 
+            "message": message,
+        }
+
+    def _quality_failure(self, quality, start):
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        message = (
+            "The image quality may reduce reliability. "
+            "Please retake the photograph with better "
+            "lighting, focus, and framing."
+        )
+        return {
+            "status": "poor_image_quality",
+            "screening": {
+                "primary_condition": None,
+                "confidence": 0.0,
+                "status": "poor_image_quality",
+            },
+            "classifier": None,
+            "caries_detected": False,
+            "caries_confidence": 0.0,
+            "caries_detections": [],
+            "image_quality": quality,
+            "processing_time_ms": round(elapsed_ms, 2),
             "message": message,
         }
