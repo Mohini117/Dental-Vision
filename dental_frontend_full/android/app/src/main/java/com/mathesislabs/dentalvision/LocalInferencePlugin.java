@@ -97,13 +97,13 @@ public class LocalInferencePlugin extends Plugin {
 
             assertInputShape(interpreter, new int[] {1, INPUT_SIZE, INPUT_SIZE, 3}, "classifier");
             assertDetectorInputShape(cariesInterpreter);
-            Bitmap resized = Bitmap.createScaledBitmap(original, INPUT_SIZE, INPUT_SIZE, true);
+            Bitmap resized = letterbox(original, INPUT_SIZE, Color.rgb(128, 128, 128));
             int classifierOutputSize = interpreter.getOutputTensor(0).shape()[1];
             if (classifierOutputSize <= 0) {
                 throw new IllegalStateException("Classifier output tensor is empty.");
             }
             float[][] output = new float[1][classifierOutputSize];
-            interpreter.run(toInputBuffer(resized, INPUT_SIZE, false, "classifier"), output);
+            interpreter.run(toInputBuffer(resized, INPUT_SIZE, true, "classifier"), output);
             List<Detection> detections = detectCaries(original, CARIES_THRESHOLD);
 
             JSObject response = buildResponse(original, output[0], detections);
@@ -321,6 +321,7 @@ public class LocalInferencePlugin extends Plugin {
                 float score = channelsFirst
                     ? output[0][4 + candidate][index]
                     : output[0][index][4 + candidate];
+                score = detectorScore(score);
                 if (score > bestScore) {
                     bestScore = score;
                     classIndex = candidate;
@@ -337,6 +338,13 @@ public class LocalInferencePlugin extends Plugin {
             float centerY = channelsFirst ? output[0][1][index] : output[0][index][1];
             float width = channelsFirst ? output[0][2][index] : output[0][index][2];
             float height = channelsFirst ? output[0][3][index] : output[0][index][3];
+            if (Math.max(Math.max(Math.abs(centerX), Math.abs(centerY)),
+                    Math.max(Math.abs(width), Math.abs(height))) <= 2.0f) {
+                centerX *= CARIES_INPUT_SIZE;
+                centerY *= CARIES_INPUT_SIZE;
+                width *= CARIES_INPUT_SIZE;
+                height *= CARIES_INPUT_SIZE;
+            }
             float x1 = clamp((centerX - width / 2.0f - padX) / scale, 0.0f, image.getWidth());
             float y1 = clamp((centerY - height / 2.0f - padY) / scale, 0.0f, image.getHeight());
             float x2 = clamp((centerX + width / 2.0f - padX) / scale, 0.0f, image.getWidth());
@@ -348,6 +356,12 @@ public class LocalInferencePlugin extends Plugin {
 
         detections.sort(Comparator.comparingDouble((Detection detection) -> detection.confidence).reversed());
         return applyNms(detections);
+    }
+
+    private float detectorScore(float value) {
+        if (!Float.isFinite(value)) return 0.0f;
+        if (value >= 0.0f && value <= 1.0f) return value;
+        return (float) (1.0 / (1.0 + Math.exp(-value)));
     }
 
     private Bitmap letterbox(Bitmap image, int targetSize, int fillColor) {
