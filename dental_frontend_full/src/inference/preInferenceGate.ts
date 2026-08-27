@@ -23,7 +23,7 @@ function failedResult(status: "no_teeth" | "retake_photo", message: string): Dia
 }
 
 export async function runPreInferenceGate(file: Blob): Promise<GateResult> {
-  const bitmap = await createImageBitmap(file);
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
   const canvas = document.createElement("canvas");
   const size = 96;
   canvas.width = size;
@@ -83,7 +83,7 @@ export async function runPreInferenceGate(file: Blob): Promise<GateResult> {
     return {
       passed: false,
       metrics,
-      diagnosis: failedResult("no_teeth", "No clear teeth or mouth signal was found. Please take a closer photo of the teeth."),
+      diagnosis: failedResult("no_teeth", "Please provide a teeth-related image to continue."),
     };
   }
 

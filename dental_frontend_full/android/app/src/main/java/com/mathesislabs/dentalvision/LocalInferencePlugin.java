@@ -4,8 +4,10 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.util.Base64;
+import android.util.Log;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -17,6 +19,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import org.tensorflow.lite.Interpreter;
+import androidx.exifinterface.media.ExifInterface;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -33,6 +36,7 @@ public class LocalInferencePlugin extends Plugin {
     private static final int INPUT_SIZE = 224;
     private static final int CARIES_INPUT_SIZE = 320;
     private static final float CARIES_THRESHOLD = 0.30f;
+    private static final String TAG = "LocalInference";
     private static final String[] CARIES_CLASSES = {
         "black stain",
         "cavities",
@@ -79,7 +83,6 @@ public class LocalInferencePlugin extends Plugin {
     @PluginMethod
     public void analyze(PluginCall call) {
         String encodedImage = call.getString("imageBase64");
-
         if (encodedImage == null || encodedImage.isEmpty()) {
             call.reject("An image is required.");
             return;
@@ -103,7 +106,7 @@ public class LocalInferencePlugin extends Plugin {
                 throw new IllegalStateException("Classifier output tensor is empty.");
             }
             float[][] output = new float[1][classifierOutputSize];
-            interpreter.run(toInputBuffer(resized), output);
+            interpreter.run(toInputBuffer(resized, INPUT_SIZE, false, "classifier"), output);
             List<Detection> detections = detectCaries(original);
 
             JSObject response = buildResponse(original, output[0], detections);
@@ -125,19 +128,32 @@ public class LocalInferencePlugin extends Plugin {
         }
     }
 
-    private ByteBuffer toInputBuffer(Bitmap bitmap) {
-        ByteBuffer input = ByteBuffer.allocateDirect(INPUT_SIZE * INPUT_SIZE * 3 * 4)
+    private ByteBuffer toInputBuffer(Bitmap bitmap, int targetSize, boolean normalize, String modelName) {
+        ByteBuffer input = ByteBuffer.allocateDirect(targetSize * targetSize * 3 * 4)
             .order(ByteOrder.nativeOrder());
+        float minimum = Float.POSITIVE_INFINITY;
+        float maximum = Float.NEGATIVE_INFINITY;
+        double total = 0.0;
 
-        for (int y = 0; y < INPUT_SIZE; y++) {
-            for (int x = 0; x < INPUT_SIZE; x++) {
+        // Both TFLite models receive RGB pixels in NHWC order. Their training
+        // contracts differ: the classifier uses raw RGB, YOLO uses [0, 1].
+        for (int y = 0; y < targetSize; y++) {
+            for (int x = 0; x < targetSize; x++) {
                 int pixel = bitmap.getPixel(x, y);
-                input.putFloat(Color.red(pixel));
-                input.putFloat(Color.green(pixel));
-                input.putFloat(Color.blue(pixel));
+                int[] channels = {Color.red(pixel), Color.green(pixel), Color.blue(pixel)};
+                for (int channel : channels) {
+                    float value = normalize ? channel / 255.0f : channel;
+                    input.putFloat(value);
+                    minimum = Math.min(minimum, value);
+                    maximum = Math.max(maximum, value);
+                    total += value;
+                }
             }
         }
 
+        double mean = total / (targetSize * targetSize * 3.0);
+        Log.d(TAG, modelName + " tensor: shape=[1," + targetSize + "," + targetSize
+            + ",3], dtype=float32, min=" + minimum + ", max=" + maximum + ", mean=" + mean);
         input.rewind();
         return input;
     }
@@ -254,7 +270,7 @@ public class LocalInferencePlugin extends Plugin {
         int candidateCount = outputShape[2];
         int classCount = outputChannels - 4;
         float[][][] output = new float[1][outputChannels][candidateCount];
-        cariesInterpreter.run(toCariesInputBuffer(letterboxed), output);
+        cariesInterpreter.run(toInputBuffer(letterboxed, CARIES_INPUT_SIZE, true, "detector"), output);
         resized.recycle();
         letterboxed.recycle();
 
@@ -312,22 +328,6 @@ public class LocalInferencePlugin extends Plugin {
         return label;
     }
 
-    private ByteBuffer toCariesInputBuffer(Bitmap bitmap) {
-        ByteBuffer input = ByteBuffer.allocateDirect(CARIES_INPUT_SIZE * CARIES_INPUT_SIZE * 3 * 4)
-            .order(ByteOrder.nativeOrder());
-        for (int channel = 0; channel < 3; channel++) {
-            for (int y = 0; y < CARIES_INPUT_SIZE; y++) {
-                for (int x = 0; x < CARIES_INPUT_SIZE; x++) {
-                    int pixel = bitmap.getPixel(x, y);
-                    int value = channel == 0 ? Color.red(pixel) : channel == 1 ? Color.green(pixel) : Color.blue(pixel);
-                    input.putFloat(value / 255.0f);
-                }
-            }
-        }
-        input.rewind();
-        return input;
-    }
-
     private List<Detection> applyNms(List<Detection> detections) {
         List<Detection> kept = new ArrayList<>();
         for (Detection candidate : detections) {
@@ -383,7 +383,57 @@ public class LocalInferencePlugin extends Plugin {
             ? encodedImage.substring(encodedImage.indexOf(',') + 1)
             : encodedImage;
         byte[] bytes = Base64.decode(payload, Base64.DEFAULT);
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+        Bitmap decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+        if (decoded == null) return null;
+
+        try {
+            ExifInterface exif = new ExifInterface(new java.io.ByteArrayInputStream(bytes));
+            int orientation = exif.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL);
+            Matrix matrix = new Matrix();
+            switch (orientation) {
+                case ExifInterface.ORIENTATION_FLIP_HORIZONTAL:
+                    matrix.setScale(-1.0f, 1.0f);
+                    break;
+                case ExifInterface.ORIENTATION_ROTATE_180:
+                    matrix.setRotate(180.0f);
+                    break;
+                case ExifInterface.ORIENTATION_FLIP_VERTICAL:
+                    matrix.setScale(1.0f, -1.0f);
+                    break;
+                case ExifInterface.ORIENTATION_TRANSPOSE:
+                    matrix.setRotate(90.0f);
+                    matrix.postScale(-1.0f, 1.0f);
+                    break;
+                case ExifInterface.ORIENTATION_ROTATE_90:
+                    matrix.setRotate(90.0f);
+                    break;
+                case ExifInterface.ORIENTATION_TRANSVERSE:
+                    matrix.setRotate(-90.0f);
+                    matrix.postScale(-1.0f, 1.0f);
+                    break;
+                case ExifInterface.ORIENTATION_ROTATE_270:
+                    matrix.setRotate(-90.0f);
+                    break;
+                default:
+                    return decoded;
+            }
+
+            Bitmap oriented = Bitmap.createBitmap(
+                decoded,
+                0,
+                0,
+                decoded.getWidth(),
+                decoded.getHeight(),
+                matrix,
+                true);
+            if (oriented != decoded) decoded.recycle();
+            return oriented;
+        } catch (IOException exception) {
+            Log.w(TAG, "Could not read EXIF orientation; using decoded pixels", exception);
+            return decoded;
+        }
     }
 
     private double averageBrightness(Bitmap image) {

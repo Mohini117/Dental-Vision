@@ -30,7 +30,7 @@ function adaptResult(raw, gate) {
     if (!condition || !box) return [];
     return [{
       condition,
-      confidence: Number(detection.confidence || 0),
+      confidence: Math.max(0, Math.min(1, Number(detection.confidence || 0))),
       boundingBox: [Number(box.x1), Number(box.y1), Number(box.x2), Number(box.y2)],
       rawLabel: detection.class_name,
     }];

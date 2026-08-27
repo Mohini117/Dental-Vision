@@ -1,6 +1,10 @@
 import { Condition } from "./types";
 
 export const YOLO_LABEL_MAP: Record<string, Condition> = {
+  cavity_or_decay: Condition.CAVITY_DECAY,
+  "cavity or decay": Condition.CAVITY_DECAY,
+  surface_stain: Condition.STAIN,
+  "surface stain": Condition.STAIN,
   cavities: Condition.CAVITY_DECAY,
   cavity: Condition.CAVITY_DECAY,
   decay: Condition.CAVITY_DECAY,
@@ -24,7 +28,7 @@ export const CLASSIFIER_LABEL_MAP: Record<string, Condition> = {
 };
 
 function normalizeLabel(value: string): string {
-  return value.trim().toLowerCase();
+  return value.trim().toLowerCase().replaceAll("-", "_");
 }
 
 export function mapYoloLabel(label: string): Condition | undefined {

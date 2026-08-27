@@ -45,6 +45,8 @@ export default function DetectionOverlay({
         {safeWidth > 0 &&
           safeHeight > 0 &&
           detections.map((detection, index) => {
+            // Native boxes are already mapped from model space through the
+            // letterbox padding back into the EXIF-oriented displayed image.
             const x1 =
               (Number(detection.bbox?.x1 || 0) /
                 safeWidth) *
