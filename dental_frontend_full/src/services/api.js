@@ -61,6 +61,11 @@ function adaptResult(raw, gate) {
     topBox: topDetection?.boundingBox,
   };
   const diagnosis = gate?.diagnosis || arbitrate(detector, classification);
+  const primaryFinding = diagnosis.findings?.[0];
+  const fallbackConfidence = Math.max(
+    detector.topConfidence || 0,
+    classification.confidence || 0,
+  );
   const quality = {
     ...(raw?.image_quality || {}),
     ...(gate?.metrics || {}),
@@ -89,8 +94,8 @@ function adaptResult(raw, gate) {
     })),
     image_quality: quality,
     screening: {
-      primary_condition: diagnosis.findings[0]?.condition || null,
-      confidence: diagnosis.findings[0]?.confidence || 0,
+      primary_condition: primaryFinding?.condition || classifierCondition,
+      confidence: primaryFinding?.confidence ?? fallbackConfidence,
       status: diagnosis.status,
     },
   };
