@@ -57,6 +57,7 @@ public class LocalInferencePlugin extends Plugin {
 
     @Override
     public void load() {
+        Log.d(TAG, "[PIPELINE-CHECK] CPU interpreter initialization CALLED " + System.currentTimeMillis());
         try {
             Interpreter.Options options = cpuOnlyOptions();
             interpreter = new Interpreter(loadModel("teeth_model.tflite"), options);
@@ -145,6 +146,7 @@ public class LocalInferencePlugin extends Plugin {
     }
 
     private ByteBuffer toInputBuffer(Bitmap bitmap, int targetSize, boolean normalize, String modelName) {
+        Log.d(TAG, "[PIPELINE-CHECK] letterboxResize CALLED " + System.currentTimeMillis());
         ByteBuffer input = ByteBuffer.allocateDirect(targetSize * targetSize * 3 * 4)
             .order(ByteOrder.nativeOrder());
         float minimum = Float.POSITIVE_INFINITY;
