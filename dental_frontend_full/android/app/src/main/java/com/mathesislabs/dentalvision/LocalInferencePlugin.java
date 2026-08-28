@@ -106,7 +106,7 @@ public class LocalInferencePlugin extends Plugin {
             }
             int classifierOutputSize = classifierOutputShape[1];
             float[][] output = new float[1][classifierOutputSize];
-            interpreter.run(toInputBuffer(resized, INPUT_SIZE, false, "classifier"), output);
+            interpreter.run(toInputBuffer(resized, INPUT_SIZE, true, "classifier"), output);
             List<Detection> detections = detectCaries(original, CARIES_THRESHOLD);
 
             JSObject response = buildResponse(original, output[0], detections);
@@ -151,7 +151,7 @@ public class LocalInferencePlugin extends Plugin {
         float maximum = Float.NEGATIVE_INFINITY;
         double total = 0.0;
 
-        // The classifier receives RGB pixels in NHWC order as raw 0..255 floats.
+        // The classifier receives normalized RGB pixels in NHWC order.
         for (int y = 0; y < targetSize; y++) {
             for (int x = 0; x < targetSize; x++) {
                 int pixel = bitmap.getPixel(x, y);
