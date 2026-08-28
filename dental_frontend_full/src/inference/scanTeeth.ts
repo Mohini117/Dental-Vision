@@ -1,7 +1,6 @@
 import { FaceDetection, LandmarkMode, PerformanceMode } from "@capacitor-mlkit/face-detection";
 import { estimateMouthRegion } from "./estimateMouthRegion";
 import { isCloseUpEnough } from "./isCloseUpEnough";
-import { runPreInferenceGate } from "./preInferenceGate";
 import type { BoundingBox, ClassResult, Detection, DiagnosisResult } from "./types";
 import { arbitrate, DISCLAIMER } from "./arbitrate";
 
@@ -26,10 +25,6 @@ export interface ScanRunners {
 
 const NO_FACE_MESSAGE = "No face detected. Please take a clear photo of your teeth or mouth.";
 const NOT_CLOSE_UP_MESSAGE = "Please capture a close-up of your teeth — move closer or zoom in.";
-
-function oralImageFallbackBox(imageWidth: number, imageHeight: number): BoundingBox {
-  return [imageWidth * 0.05, imageHeight * 0.05, imageWidth * 0.95, imageHeight * 0.95];
-}
 
 function retake(status: "no_face" | "not_close_up", message: string): DiagnosisResult {
   return { status, findings: [], message, disclaimer: DISCLAIMER };
@@ -57,24 +52,20 @@ async function cropWithPadding(source: Blob, box: BoundingBox, paddingRatio: num
 }
 
 export async function scanTeeth(photo: ScanPhoto, runners: ScanRunners): Promise<DiagnosisResult> {
-  const gate = await runPreInferenceGate(photo.source);
-  if (!gate.passed) return gate.diagnosis || retake("not_close_up", NOT_CLOSE_UP_MESSAGE);
-
-  let faces = [];
+  let faces;
   try {
     ({ faces } = await FaceDetection.processImage({
       path: photo.path,
-      performanceMode: PerformanceMode.Fast,
+      performanceMode: PerformanceMode.Accurate,
       landmarkMode: LandmarkMode.All,
-      minFaceSize: 0.05,
+      minFaceSize: 0.02,
     }));
   } catch {
-    // Teeth-only photos are valid inputs even when face detection cannot run.
+    return retake("no_face", NO_FACE_MESSAGE);
   }
+  if (faces.length === 0) return retake("no_face", NO_FACE_MESSAGE);
 
-  const mouthBox = faces.length > 0
-    ? estimateMouthRegion(faces[0], photo.width, photo.height)
-    : oralImageFallbackBox(photo.width, photo.height);
+  const mouthBox = estimateMouthRegion(faces[0], photo.width, photo.height);
   if (!mouthBox || !isCloseUpEnough(mouthBox, photo.width, photo.height)) {
     return retake("not_close_up", NOT_CLOSE_UP_MESSAGE);
   }

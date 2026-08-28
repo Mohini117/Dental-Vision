@@ -55,6 +55,23 @@ def load_rgb_image(content: bytes) -> Image.Image:
         ) from exc
 
 
+def contains_face(image: Image.Image) -> bool:
+    gray = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2GRAY)
+    cascade = cv2.CascadeClassifier(
+        cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+    )
+    if cascade.empty():
+        raise ImageValidationError("Face detection is unavailable.")
+
+    faces = cascade.detectMultiScale(
+        gray,
+        scaleFactor=1.1,
+        minNeighbors=5,
+        minSize=(64, 64),
+    )
+    return len(faces) > 0
+
+
 def assess_image_quality(image: Image.Image) -> dict:
     rgb = np.asarray(image)
 

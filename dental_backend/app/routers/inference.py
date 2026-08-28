@@ -4,6 +4,7 @@ from app.dependencies import get_inference_service
 from app.exceptions import ImageValidationError, InferenceError
 from app.schemas import PredictionResponse
 from app.utils.image_validation import (
+    contains_face,
     load_rgb_image,
     validate_upload,
 )
@@ -31,6 +32,11 @@ async def predict(
         )
 
         image = load_rgb_image(content)
+
+        if not contains_face(image):
+            raise ImageValidationError(
+                "No face detected. Please provide a clear photo of your teeth or mouth."
+            )
 
         service = get_inference_service()
 

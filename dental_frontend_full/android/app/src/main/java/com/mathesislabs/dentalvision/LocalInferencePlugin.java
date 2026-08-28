@@ -108,6 +108,7 @@ public class LocalInferencePlugin extends Plugin {
             int classifierOutputSize = classifierOutputShape[1];
             float[][] output = new float[1][classifierOutputSize];
             interpreter.run(toInputBuffer(resized, INPUT_SIZE, true, "classifier"), output);
+            Log.d(TAG, "[RAW] classifier output: " + Arrays.toString(output[0]));
             List<Detection> detections = detectCaries(original, CARIES_THRESHOLD);
 
             JSObject response = buildResponse(original, output[0], detections);
@@ -362,6 +363,11 @@ public class LocalInferencePlugin extends Plugin {
         }
 
         detections.sort(Comparator.comparingDouble((Detection detection) -> detection.confidence).reversed());
+        int rawLogLimit = Math.min(5, detections.size());
+        Log.d(TAG, "[RAW] detector top-5 confidences: "
+            + detections.subList(0, rawLogLimit).stream()
+                .map(detection -> Float.toString(detection.confidence))
+                .collect(java.util.stream.Collectors.joining(",")));
         return applyNms(detections);
     }
 
