@@ -3,7 +3,9 @@
     {
       "appId": "f9d4003c",
       "root": "dental_frontend_full",
-       "androidPath": "dental_frontend_full/android"
+      "dependencyInstallCommand": "npm ci",
+      "webBuildCommand": "npm run build:appflow",
+      "androidPath": "android"
     }
   ]
 }

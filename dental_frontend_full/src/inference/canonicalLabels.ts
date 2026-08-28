@@ -13,7 +13,7 @@ export const YOLO_LABEL_MAP: Record<string, Condition> = {
   decaycavity: Condition.CAVITY_DECAY,
   "decayed tooth": Condition.CAVITY_DECAY,
   earlydecay: Condition.CAVITY_DECAY,
-  "tooth-decay": Condition.CAVITY_DECAY,
+  tooth_decay: Condition.CAVITY_DECAY,
   filling: Condition.FILLING,
   "black stain": Condition.STAIN,
   healthytooth: Condition.HEALTHY,

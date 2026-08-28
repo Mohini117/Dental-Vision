@@ -39,16 +39,24 @@ public class LocalInferencePlugin extends Plugin {
     private static final float CLASSIFIER_THRESHOLD = 0.70f;
     private static final String TAG = "LocalInference";
     private static final String[] CARIES_CLASSES = {
-        "primary_caries",
-        "permanent_caries"
+        "black stain",
+        "cavities",
+        "cavity",
+        "decay",
+        "decaycavity",
+        "decayed tooth",
+        "earlydecay",
+        "filling",
+        "healthytooth",
+        "normal",
+        "tooth-decay"
     };
     private static final String[] CLASSES = {
         "Calculus",
-        "Caries",
+        "Dental Caries",
         "Gingivitis",
-        "Ulcers",
-        "Tooth Discoloration",
-        "Hypodontia"
+        "Mouth Ulcer",
+        "Tooth Discoloration"
     };
 
     private Interpreter interpreter;
@@ -78,6 +86,7 @@ public class LocalInferencePlugin extends Plugin {
 
     @PluginMethod
     public void analyze(PluginCall call) {
+        Log.d(TAG, "[PIPELINE-CHECK] analyze ENTERED " + System.currentTimeMillis());
         String encodedImage = call.getString("imageBase64");
         if (encodedImage == null || encodedImage.isEmpty()) {
             call.reject("An image is required.");
@@ -98,7 +107,7 @@ public class LocalInferencePlugin extends Plugin {
 
             assertInputShape(interpreter, new int[] {1, INPUT_SIZE, INPUT_SIZE, 3}, "classifier");
             assertDetectorInputShape(cariesInterpreter);
-            Bitmap resized = Bitmap.createScaledBitmap(original, INPUT_SIZE, INPUT_SIZE, true);
+            Bitmap resized = letterbox(original, INPUT_SIZE, Color.rgb(128, 128, 128));
             int[] classifierOutputShape = interpreter.getOutputTensor(0).shape();
                 if (classifierOutputShape.length != 2 || classifierOutputShape[0] != 1
                     || classifierOutputShape[1] < 1) {
@@ -107,6 +116,7 @@ public class LocalInferencePlugin extends Plugin {
             }
             int classifierOutputSize = classifierOutputShape[1];
             float[][] output = new float[1][classifierOutputSize];
+            Log.d(TAG, "[PIPELINE-CHECK] classifier interpreter.run ENTERED " + System.currentTimeMillis());
             interpreter.run(toInputBuffer(resized, INPUT_SIZE, true, "classifier"), output);
             Log.d(TAG, "[RAW] classifier output: " + Arrays.toString(output[0]));
             List<Detection> detections = detectCaries(original, CARIES_THRESHOLD);
@@ -282,6 +292,7 @@ public class LocalInferencePlugin extends Plugin {
     }
 
     private List<Detection> detectCaries(Bitmap image, float threshold) {
+        Log.d(TAG, "[PIPELINE-CHECK] detectCaries ENTERED " + System.currentTimeMillis());
         List<Detection> detections = new ArrayList<>();
         if (cariesInterpreter == null) {
             return detections;
@@ -318,10 +329,12 @@ public class LocalInferencePlugin extends Plugin {
         float[][][] output = channelsFirst
             ? new float[1][outputChannels][candidateCount]
             : new float[1][candidateCount][outputChannels];
+        Log.d(TAG, "[PIPELINE-CHECK] detector interpreter.run ENTERED " + System.currentTimeMillis());
         cariesInterpreter.run(toDetectorInputBuffer(letterboxed), output);
         resized.recycle();
         letterboxed.recycle();
 
+        List<RawCandidate> rawCandidates = new ArrayList<>();
         for (int index = 0; index < candidateCount; index++) {
             float bestScore = 0.0f;
             int classIndex = 0;
@@ -336,6 +349,7 @@ public class LocalInferencePlugin extends Plugin {
                 }
             }
 
+            rawCandidates.add(new RawCandidate(cariesLabel(classIndex), bestScore));
             if (bestScore < threshold) {
                 continue;
             }
@@ -363,10 +377,11 @@ public class LocalInferencePlugin extends Plugin {
         }
 
         detections.sort(Comparator.comparingDouble((Detection detection) -> detection.confidence).reversed());
-        int rawLogLimit = Math.min(5, detections.size());
-        Log.d(TAG, "[RAW] detector top-5 confidences: "
-            + detections.subList(0, rawLogLimit).stream()
-                .map(detection -> Float.toString(detection.confidence))
+        rawCandidates.sort(Comparator.comparingDouble((RawCandidate candidate) -> candidate.confidence).reversed());
+        int rawLogLimit = Math.min(10, rawCandidates.size());
+        Log.d(TAG, "[RAW] detector top-10 raw confidences: "
+            + rawCandidates.subList(0, rawLogLimit).stream()
+                .map(candidate -> candidate.label + "=" + candidate.confidence)
                 .collect(java.util.stream.Collectors.joining(",")));
         return applyNms(detections);
     }
@@ -396,8 +411,8 @@ public class LocalInferencePlugin extends Plugin {
 
     private void assertDetectorInputShape(Interpreter model) {
         int[] actual = model.getInputTensor(0).shape();
-        int[] nchw = new int[] {1, 3, CARIES_INPUT_SIZE, CARIES_INPUT_SIZE};
-        if (!Arrays.equals(actual, nchw)) {
+        int[] nhwc = new int[] {1, CARIES_INPUT_SIZE, CARIES_INPUT_SIZE, 3};
+        if (!Arrays.equals(actual, nhwc)) {
             String message = "detector input shape mismatch: " + Arrays.toString(actual);
             Log.e(TAG, message);
             throw new IllegalStateException(message);
@@ -405,17 +420,17 @@ public class LocalInferencePlugin extends Plugin {
     }
 
     private ByteBuffer toDetectorInputBuffer(Bitmap bitmap) {
+        Log.d(TAG, "[PIPELINE-CHECK] toDetectorInputBuffer ENTERED " + System.currentTimeMillis());
         ByteBuffer input = ByteBuffer.allocateDirect(CARIES_INPUT_SIZE * CARIES_INPUT_SIZE * 3 * 4)
             .order(ByteOrder.nativeOrder());
         float minimum = Float.POSITIVE_INFINITY;
         float maximum = Float.NEGATIVE_INFINITY;
         double total = 0.0;
-        for (int channel = 0; channel < 3; channel++) {
-            for (int y = 0; y < CARIES_INPUT_SIZE; y++) {
-                for (int x = 0; x < CARIES_INPUT_SIZE; x++) {
-                    int pixel = bitmap.getPixel(x, y);
-                    int value = channel == 0 ? Color.red(pixel)
-                        : channel == 1 ? Color.green(pixel) : Color.blue(pixel);
+        for (int y = 0; y < CARIES_INPUT_SIZE; y++) {
+            for (int x = 0; x < CARIES_INPUT_SIZE; x++) {
+                int pixel = bitmap.getPixel(x, y);
+                int[] channels = {Color.red(pixel), Color.green(pixel), Color.blue(pixel)};
+                for (int value : channels) {
                     float normalized = value / 255.0f;
                     input.putFloat(normalized);
                     minimum = Math.min(minimum, normalized);
@@ -425,8 +440,8 @@ public class LocalInferencePlugin extends Plugin {
             }
         }
         double mean = total / (CARIES_INPUT_SIZE * CARIES_INPUT_SIZE * 3.0);
-        Log.d(TAG, "detector tensor: shape=[1,3," + CARIES_INPUT_SIZE + ","
-            + CARIES_INPUT_SIZE + "], dtype=float32, min=" + minimum
+        Log.d(TAG, "detector tensor: shape=[1," + CARIES_INPUT_SIZE + ","
+            + CARIES_INPUT_SIZE + ",3], dtype=float32, min=" + minimum
             + ", max=" + maximum + ", mean=" + mean);
         input.rewind();
         return input;
@@ -502,7 +517,18 @@ public class LocalInferencePlugin extends Plugin {
         }
     }
 
+    private static class RawCandidate {
+        final String label;
+        final float confidence;
+
+        RawCandidate(String label, float confidence) {
+            this.label = label;
+            this.confidence = confidence;
+        }
+    }
+
     private Bitmap decodeImage(String encodedImage) {
+        Log.d(TAG, "[PIPELINE-CHECK] decodeImage ENTERED " + System.currentTimeMillis());
         String payload = encodedImage.contains(",")
             ? encodedImage.substring(encodedImage.indexOf(',') + 1)
             : encodedImage;

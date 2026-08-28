@@ -38,7 +38,11 @@ function adaptResult(raw, gate) {
   });
   const rawClassifier = raw?.classifier || {};
   const classifierLabel = rawClassifier.top_prediction || raw?.classification?.label || "";
-  const classifierCondition = mapClassifierLabel(classifierLabel) || "healthy";
+  const mappedClassifierCondition = mapClassifierLabel(classifierLabel);
+  const classifierCondition = mappedClassifierCondition || "healthy";
+  const classifierConfidence = mappedClassifierCondition
+    ? Number(rawClassifier.confidence || raw?.classification?.confidence || 0)
+    : 0;
   const canonicalProbabilities = Object.entries(rawClassifier.probabilities || {}).reduce(
     (probabilities, [label, probability]) => {
       const condition = mapClassifierLabel(label);
@@ -49,7 +53,7 @@ function adaptResult(raw, gate) {
   );
   const classification = {
     condition: classifierCondition,
-    confidence: Number(rawClassifier.confidence || raw?.classification?.confidence || 0),
+    confidence: classifierConfidence,
     probabilities: canonicalProbabilities,
     rawLabel: classifierLabel,
   };
@@ -78,6 +82,7 @@ function adaptResult(raw, gate) {
     classifier: {
       ...rawClassifier,
       top_prediction: classifierCondition,
+      confidence: classifierConfidence,
       probabilities: canonicalProbabilities,
     },
     caries_detected: detections.length > 0,
@@ -124,6 +129,8 @@ async function logInference(file, raw, result, gate) {
 }
 
 export async function analyzeImage(file) {
+  let raw;
+
   if (Capacitor.isNativePlatform()) {
     const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
     const imageDataUrl = await readAsBase64(file);
@@ -160,7 +167,7 @@ export async function analyzeImage(file) {
             const raw = await getRaw(crop);
             const adapted = adaptResult(raw, null);
             return {
-              condition: mapClassifierLabel(adapted.classifier.top_prediction) || "healthy",
+              condition: adapted.classifier.top_prediction || "healthy",
               confidence: Number(adapted.classifier.confidence || 0),
               probabilities: adapted.classifier.probabilities,
             };
@@ -177,7 +184,6 @@ export async function analyzeImage(file) {
       await Filesystem.deleteFile({ path: temporaryPath, directory: Directory.Cache }).catch(() => {});
     }
   } else {
-    let raw;
     const formData = new FormData();
     formData.append("file", file);
     const response = await fetch("/api/predict", { method: "POST", body: formData });
