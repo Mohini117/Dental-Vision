@@ -44,7 +44,6 @@ export function estimateMouthRegion(
   imageWidth: number,
   imageHeight: number,
 ): BoundingBox | null {
-  console.log("[PIPELINE-CHECK] estimateMouthRegion CALLED", Date.now());
   if (imageWidth <= 0 || imageHeight <= 0) return null;
 
   const landmarks = face.landmarks?.filter((landmark) =>

@@ -18,13 +18,17 @@ class InferenceService:
         self.classifier = classifier
         self.caries_detector = caries_detector
 
-    def analyze(self, image):
+    def analyze(self, image, quality=None, crop_box=None):
         start = time.perf_counter()
 
-        quality = assess_image_quality(image)
+        quality = quality or assess_image_quality(image)
 
         all_caries_detections = (
             self.caries_detector.predict(image)
+        )
+        all_caries_detections = self._translate_detections(
+            all_caries_detections,
+            crop_box,
         )
 
         classifier_result = self.classifier.predict(image)
@@ -153,6 +157,27 @@ class InferenceService:
 
             "message": message,
         }
+
+    def _translate_detections(self, detections, crop_box):
+        if crop_box is None:
+            return detections
+
+        offset_x, offset_y, _, _ = crop_box
+        translated = []
+        for detection in detections:
+            bbox = detection.get("bbox", {})
+            translated.append(
+                {
+                    **detection,
+                    "bbox": {
+                        "x1": float(bbox.get("x1", 0.0)) + offset_x,
+                        "y1": float(bbox.get("y1", 0.0)) + offset_y,
+                        "x2": float(bbox.get("x2", 0.0)) + offset_x,
+                        "y2": float(bbox.get("y2", 0.0)) + offset_y,
+                    },
+                }
+            )
+        return translated
 
     def _quality_failure(self, quality, start):
         elapsed_ms = (time.perf_counter() - start) * 1000.0

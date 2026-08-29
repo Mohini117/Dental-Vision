@@ -6,6 +6,6 @@ tensorflow
 numpy
 pillow
 opencv-python-headless
-ultralytics
+ultralytics>=8.3.0
 pytest
 httpx

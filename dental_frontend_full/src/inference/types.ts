@@ -12,7 +12,12 @@ export enum Condition {
 
 export type DiagnosisStatus =
   | "no_face"
+  | "no_teeth"
   | "not_close_up"
+  | "poor_image_quality"
+  | "possible_caries"
+  | "prediction"
+  | "retake_photo"
   | "healthy"
   | "finding"
   | "uncertain";

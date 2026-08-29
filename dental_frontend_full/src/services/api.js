@@ -6,6 +6,7 @@ import { mapClassifierLabel, mapYoloLabel } from "../inference/canonicalLabels";
 import { CONFIDENCE_THRESHOLDS } from "../inference/thresholds";
 
 const LocalInference = registerPlugin("LocalInference");
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
 function readAsBase64(file) {
   return new Promise((resolve, reject) => {
@@ -17,6 +18,25 @@ function readAsBase64(file) {
   });
 }
 
+function clamp(value, minimum, maximum) {
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
+function finiteConfidence(value) {
+  const confidence = Number(value);
+  return Number.isFinite(confidence) ? clamp(confidence, 0, 1) : 0;
+}
+
+function transformBoundingBox(box, transform) {
+  if (!transform) return box;
+  return [
+    clamp(box[0] + transform.offsetX, 0, transform.sourceWidth),
+    clamp(box[1] + transform.offsetY, 0, transform.sourceHeight),
+    clamp(box[2] + transform.offsetX, 0, transform.sourceWidth),
+    clamp(box[3] + transform.offsetY, 0, transform.sourceHeight),
+  ];
+}
+
 async function imageId(file) {
   if (!crypto?.subtle) return `${file.name}:${file.size}:${file.lastModified}`;
   const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
@@ -24,29 +44,35 @@ async function imageId(file) {
 }
 
 function adaptResult(raw, gate) {
+  const rejectionStatuses = new Set(["no_face", "no_teeth", "not_close_up", "poor_image_quality"]);
+  const isRejected = rejectionStatuses.has(raw?.status) && !raw?.classifier;
   const rawDetections = raw?.caries_detections || raw?.detections || [];
   const detections = rawDetections.flatMap((detection) => {
     const condition = mapYoloLabel(detection.class_name || detection.label || "");
     const box = detection.bbox || detection.boundingBox;
     if (!condition || !box) return [];
+    const boundingBox = transformBoundingBox(
+      [Number(box.x1), Number(box.y1), Number(box.x2), Number(box.y2)],
+      gate?.transform,
+    );
     return [{
       condition,
-      confidence: Math.max(0, Math.min(1, Number(detection.confidence || 0))),
-      boundingBox: [Number(box.x1), Number(box.y1), Number(box.x2), Number(box.y2)],
+      confidence: finiteConfidence(detection.confidence),
+      boundingBox,
       rawLabel: detection.class_name,
     }];
-  });
+  }).sort((first, second) => second.confidence - first.confidence);
   const rawClassifier = raw?.classifier || {};
   const classifierLabel = rawClassifier.top_prediction || raw?.classification?.label || "";
   const mappedClassifierCondition = mapClassifierLabel(classifierLabel);
   const classifierCondition = mappedClassifierCondition || "healthy";
   const classifierConfidence = mappedClassifierCondition
-    ? Number(rawClassifier.confidence || raw?.classification?.confidence || 0)
+    ? finiteConfidence(rawClassifier.confidence ?? raw?.classification?.confidence)
     : 0;
   const canonicalProbabilities = Object.entries(rawClassifier.probabilities || {}).reduce(
     (probabilities, [label, probability]) => {
       const condition = mapClassifierLabel(label);
-      if (condition) probabilities[condition] = Number(probability);
+      if (condition) probabilities[condition] = finiteConfidence(probability);
       return probabilities;
     },
     {}
@@ -64,7 +90,14 @@ function adaptResult(raw, gate) {
     topConfidence: topDetection?.confidence || 0,
     topBox: topDetection?.boundingBox,
   };
-  const diagnosis = gate?.diagnosis || arbitrate(detector, classification);
+  const diagnosis = gate?.diagnosis || (isRejected
+    ? {
+      status: raw.status,
+      findings: [],
+      message: raw.message || "Please take or upload a clear close-up photo of teeth.",
+      disclaimer: DISCLAIMER,
+    }
+    : arbitrate(detector, classification));
   const primaryFinding = diagnosis.findings?.[0];
   const fallbackConfidence = Math.max(
     detector.topConfidence || 0,
@@ -76,6 +109,8 @@ function adaptResult(raw, gate) {
     acceptable: gate ? gate.passed : raw?.image_quality?.acceptable,
     brightness: gate?.metrics?.meanLuminance ?? raw?.image_quality?.brightness,
     blur_score: gate?.metrics?.blurScore ?? raw?.image_quality?.blur_score,
+    width: gate?.transform?.sourceWidth ?? raw?.image_quality?.width,
+    height: gate?.transform?.sourceHeight ?? raw?.image_quality?.height,
   };
   return {
     ...diagnosis,
@@ -99,8 +134,8 @@ function adaptResult(raw, gate) {
     })),
     image_quality: quality,
     screening: {
-      primary_condition: primaryFinding?.condition || classifierCondition,
-      confidence: primaryFinding?.confidence ?? fallbackConfidence,
+      primary_condition: primaryFinding?.condition || (isRejected ? null : classifierCondition),
+      confidence: primaryFinding?.confidence ?? (isRejected ? 0 : fallbackConfidence),
       status: diagnosis.status,
     },
   };
@@ -143,6 +178,7 @@ export async function analyzeImage(file) {
     });
     try {
       let rawPromise;
+      let inferenceTransform;
       const getRaw = (crop) => {
         if (!rawPromise) {
           rawPromise = LocalInference.analyze({ imageBase64: crop });
@@ -152,20 +188,32 @@ export async function analyzeImage(file) {
       const result = await scanTeeth(
         { path: uri, width: bitmap.width, height: bitmap.height, source: file },
         {
-          runDetector: async (crop) => {
+          runDetector: async (crop, transform) => {
+            inferenceTransform = transform;
             const raw = await getRaw(crop);
-            const adapted = adaptResult(raw, null);
-            const detection = adapted.caries_detections[0];
+            const adapted = adaptResult(raw, { transform, passed: true });
+            const detections = adapted.caries_detections.map((detection) => ({
+              condition: detection.class_name,
+              confidence: detection.confidence,
+              boundingBox: [
+                detection.bbox.x1,
+                detection.bbox.y1,
+                detection.bbox.x2,
+                detection.bbox.y2,
+              ],
+            }));
+            const detection = detections[0];
             return {
-              detections: adapted.caries_detections,
-              topCanonicalClass: detection?.class_name || "healthy",
+              detections,
+              topCanonicalClass: detection?.condition || "healthy",
               topConfidence: detection?.confidence || 0,
-              topBox: detection ? [detection.bbox.x1, detection.bbox.y1, detection.bbox.x2, detection.bbox.y2] : undefined,
+              topBox: detection?.boundingBox,
             };
           },
-          runClassifier: async (crop) => {
+          runClassifier: async (crop, transform) => {
+            inferenceTransform = transform;
             const raw = await getRaw(crop);
-            const adapted = adaptResult(raw, null);
+            const adapted = adaptResult(raw, { transform, passed: true });
             return {
               condition: adapted.classifier.top_prediction || "healthy",
               confidence: Number(adapted.classifier.confidence || 0),
@@ -175,7 +223,7 @@ export async function analyzeImage(file) {
         },
       );
       const normalized = rawPromise
-        ? adaptResult(await rawPromise, { diagnosis: result, passed: true })
+        ? adaptResult(await rawPromise, { diagnosis: result, passed: true, transform: inferenceTransform })
         : result;
       await logInference(file, {}, normalized, { passed: true });
       return normalized;
@@ -186,7 +234,7 @@ export async function analyzeImage(file) {
   } else {
     const formData = new FormData();
     formData.append("file", file);
-    const response = await fetch("/api/predict", { method: "POST", body: formData });
+    const response = await fetch(`${API_BASE_URL}/api/predict`, { method: "POST", body: formData });
     try {
       raw = await response.json();
     } catch {

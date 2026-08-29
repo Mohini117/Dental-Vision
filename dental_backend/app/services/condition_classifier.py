@@ -14,6 +14,20 @@ from app.config import (
 from app.exceptions import ModelInitializationError, InferenceError
 
 
+def load_compatible_model(model_path: Path):
+    dense_init = tf.keras.layers.Dense.__init__
+
+    def compatible_dense_init(self, *args, **kwargs):
+        kwargs.pop("quantization_config", None)
+        dense_init(self, *args, **kwargs)
+
+    tf.keras.layers.Dense.__init__ = compatible_dense_init
+    try:
+        return tf.keras.models.load_model(model_path, compile=False)
+    finally:
+        tf.keras.layers.Dense.__init__ = dense_init
+
+
 class ConditionClassifier:
     def __init__(
         self,
@@ -31,10 +45,7 @@ class ConditionClassifier:
             )
 
         try:
-            self.model = tf.keras.models.load_model(
-                model_path,
-                compile=False,
-            )
+            self.model = load_compatible_model(model_path)
 
             with metadata_path.open("r", encoding="utf-8") as f:
                 metadata = json.load(f)

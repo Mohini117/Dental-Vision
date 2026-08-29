@@ -3,6 +3,7 @@ import { estimateMouthRegion } from "./estimateMouthRegion";
 import { isCloseUpEnough } from "./isCloseUpEnough";
 import type { BoundingBox, ClassResult, Detection, DiagnosisResult } from "./types";
 import { arbitrate, DISCLAIMER } from "./arbitrate";
+import { runPreInferenceGate } from "./preInferenceGate";
 
 export interface ScanPhoto {
   path: string;
@@ -18,19 +19,41 @@ export interface DetectorResult {
   topBox?: BoundingBox;
 }
 
-export interface ScanRunners {
-  runDetector: (crop: string) => Promise<DetectorResult>;
-  runClassifier: (crop: string) => Promise<ClassResult>;
+export interface CropTransform {
+  offsetX: number;
+  offsetY: number;
+  width: number;
+  height: number;
+  sourceWidth: number;
+  sourceHeight: number;
 }
 
-const NO_FACE_MESSAGE = "No face detected. Please take a clear photo of your teeth or mouth.";
-const NOT_CLOSE_UP_MESSAGE = "Please capture a close-up of your teeth — move closer or zoom in.";
+export interface ScanRunners {
+  runDetector: (crop: string, transform: CropTransform) => Promise<DetectorResult>;
+  runClassifier: (crop: string, transform: CropTransform) => Promise<ClassResult>;
+}
 
-function retake(status: "no_face" | "not_close_up", message: string): DiagnosisResult {
+const TAKE_TEETH_IMAGE_MESSAGE = "Please take or upload a clear close-up photo of teeth.";
+const NOT_CLOSE_UP_MESSAGE = "Please capture a closer, well-lit photo focused on the teeth.";
+
+function retake(
+  status: "no_face" | "not_close_up" | "no_teeth",
+  message: string,
+): DiagnosisResult {
   return { status, findings: [], message, disclaimer: DISCLAIMER };
 }
 
-async function cropWithPadding(source: Blob, box: BoundingBox, paddingRatio: number): Promise<string> {
+function faceArea(face: { bounds?: { left: number; top: number; right: number; bottom: number } }): number {
+  const bounds = face.bounds;
+  if (!bounds) return 0;
+  return Math.max(0, bounds.right - bounds.left) * Math.max(0, bounds.bottom - bounds.top);
+}
+
+async function cropWithPadding(
+  source: Blob,
+  box: BoundingBox,
+  paddingRatio: number,
+): Promise<{ dataUrl: string; transform: CropTransform }> {
   const bitmap = await createImageBitmap(source, { imageOrientation: "from-image" });
   const paddingX = (box[2] - box[0]) * paddingRatio;
   const paddingY = (box[3] - box[1]) * paddingRatio;
@@ -47,12 +70,39 @@ async function cropWithPadding(source: Blob, box: BoundingBox, paddingRatio: num
     throw new Error("Could not create an image processing context.");
   }
   context.drawImage(bitmap, x, y, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+  const transform = {
+    offsetX: x,
+    offsetY: y,
+    width: canvas.width,
+    height: canvas.height,
+    sourceWidth: bitmap.width,
+    sourceHeight: bitmap.height,
+  };
   bitmap.close();
-  return canvas.toDataURL("image/jpeg", 0.95);
+  return { dataUrl: canvas.toDataURL("image/jpeg", 0.95), transform };
+}
+
+async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
+  const response = await fetch(dataUrl);
+  if (!response.ok) {
+    throw new Error("Could not prepare the cropped image.");
+  }
+  return response.blob();
+}
+
+async function runModels(
+  crop: { dataUrl: string; transform: CropTransform },
+  runners: ScanRunners,
+): Promise<DiagnosisResult> {
+  const [detectorResult, classifierResult] = await Promise.all([
+    runners.runDetector(crop.dataUrl, crop.transform),
+    runners.runClassifier(crop.dataUrl, crop.transform),
+  ]);
+  return arbitrate(detectorResult, classifierResult);
 }
 
 export async function scanTeeth(photo: ScanPhoto, runners: ScanRunners): Promise<DiagnosisResult> {
-  let faces;
+  let faces = [];
   try {
     ({ faces } = await FaceDetection.processImage({
       path: photo.path,
@@ -61,19 +111,31 @@ export async function scanTeeth(photo: ScanPhoto, runners: ScanRunners): Promise
       minFaceSize: 0.02,
     }));
   } catch {
-    return retake("no_face", NO_FACE_MESSAGE);
+    faces = [];
   }
-  if (faces.length === 0) return retake("no_face", NO_FACE_MESSAGE);
 
-  const mouthBox = estimateMouthRegion(faces[0], photo.width, photo.height);
-  if (!mouthBox || !isCloseUpEnough(mouthBox, photo.width, photo.height)) {
+  if (faces.length > 0) {
+    const face = [...faces].sort((first, second) => faceArea(second) - faceArea(first))[0];
+    const mouthBox = estimateMouthRegion(face, photo.width, photo.height);
+    if (mouthBox && isCloseUpEnough(mouthBox, photo.width, photo.height)) {
+      const crop = await cropWithPadding(photo.source, mouthBox, 0.35);
+      const gate = await runPreInferenceGate(await dataUrlToBlob(crop.dataUrl));
+      if (!gate.passed) {
+        return gate.diagnosis || retake("no_teeth", TAKE_TEETH_IMAGE_MESSAGE);
+      }
+      return runModels(crop, runners);
+    }
+  }
+
+  const gate = await runPreInferenceGate(photo.source);
+  if (gate.passed) {
+    const crop = await cropWithPadding(photo.source, [0, 0, photo.width, photo.height], 0);
+    return runModels(crop, runners);
+  }
+
+  if (faces.length > 0) {
     return retake("not_close_up", NOT_CLOSE_UP_MESSAGE);
   }
 
-  const crop = await cropWithPadding(photo.source, mouthBox, 0.35);
-  const [detectorResult, classifierResult] = await Promise.all([
-    runners.runDetector(crop),
-    runners.runClassifier(crop),
-  ]);
-  return arbitrate(detectorResult, classifierResult);
+  return retake("no_teeth", TAKE_TEETH_IMAGE_MESSAGE);
 }

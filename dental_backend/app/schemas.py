@@ -31,10 +31,18 @@ class ImageQuality(BaseModel):
     acceptable: bool
 
 
+class ScreeningResult(BaseModel):
+    primary_condition: Optional[str] = None
+    confidence: float = Field(ge=0.0, le=1.0)
+    status: str
+
+
 class PredictionResponse(BaseModel):
     status: str
-    classifier: ClassifierResult
+    screening: ScreeningResult
+    classifier: Optional[ClassifierResult] = None
     caries_detected: bool
+    caries_confidence: float = Field(ge=0.0, le=1.0)
     caries_detections: List[CariesDetection]
     image_quality: ImageQuality
     processing_time_ms: float

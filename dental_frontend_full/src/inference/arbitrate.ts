@@ -33,7 +33,6 @@ function buildFindingMessage(findings: DiagnosisFinding[]): string {
 }
 
 export function arbitrate(detector: DetectorResult, classifier: ClassResult): DiagnosisResult {
-  console.log("[PIPELINE-CHECK] arbitrate CALLED", Date.now());
   const detectorTop = detector.topCanonicalClass;
   const detectorConfident = isConfident(detectorTop, detector.topConfidence);
   const classifierConfident = isConfident(classifier.condition, classifier.confidence);
