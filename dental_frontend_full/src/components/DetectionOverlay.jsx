@@ -3,6 +3,7 @@ import {
   MapPin,
 } from "lucide-react";
 
+import { isCavityOrDecayLabel } from "../inference/canonicalLabels";
 import {
   normalizeCondition,
   pct,
@@ -14,6 +15,9 @@ export default function DetectionOverlay({
   height,
   detections = [],
 }) {
+  const cavityDetections = detections.filter((detection) =>
+    isCavityOrDecayLabel(detection.class_name || detection.label || detection.condition)
+  );
   const safeWidth = Number(width || 0);
   const safeHeight = Number(height || 0);
 
@@ -29,8 +33,8 @@ export default function DetectionOverlay({
 
         <div className="evidence-chip">
           <Eye size={14} />
-          {detections.length} region
-          {detections.length === 1
+          {cavityDetections.length} region
+          {cavityDetections.length === 1
             ? ""
             : "s"}
         </div>
@@ -44,7 +48,7 @@ export default function DetectionOverlay({
 
         {safeWidth > 0 &&
           safeHeight > 0 &&
-          detections.map((detection, index) => {
+          cavityDetections.map((detection, index) => {
             // Native boxes are already mapped from model space through the
             // letterbox padding back into the EXIF-oriented displayed image.
             const x1 =
@@ -94,7 +98,7 @@ export default function DetectionOverlay({
             );
           })}
 
-        {detections.length > 0 && (
+        {cavityDetections.length > 0 && (
           <div className="overlay-legend">
             <MapPin size={14} />
             Highlighted regions are possible model detections.

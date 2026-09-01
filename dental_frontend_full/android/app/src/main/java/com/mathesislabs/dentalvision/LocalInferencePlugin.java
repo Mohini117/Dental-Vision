@@ -349,6 +349,9 @@ public class LocalInferencePlugin extends Plugin {
             }
 
             String className = canonicalDetectorLabel(cariesLabel(classIndex));
+            if (!isCavityOrDecayLabel(className)) {
+                continue;
+            }
             // YOLO export boxes are already expressed in 320px input coordinates.
             float centerX = channelsFirst ? output[0][0][index] : output[0][index][0];
             float centerY = channelsFirst ? output[0][1][index] : output[0][index][1];
@@ -440,6 +443,10 @@ public class LocalInferencePlugin extends Plugin {
 
     private String cariesLabel(int index) {
         return index < CARIES_CLASSES.length ? CARIES_CLASSES[index] : "class_" + index;
+    }
+
+    private boolean isCavityOrDecayLabel(String canonicalLabel) {
+        return "cavity_or_decay".equals(canonicalLabel);
     }
 
     private String canonicalDetectorLabel(String label) {

@@ -339,23 +339,40 @@ export default function App() {
 
                 {previewUrl && (
                   <DetectionOverlay
-                    src={previewUrl}
+                    src={
+                      result.crop?.dataUrl ||
+                      previewUrl
+                    }
                     width={
+                      result.crop?.width ||
                       result.image?.width ||
                       result.image_quality
                         ?.width ||
                       0
                     }
                     height={
+                      result.crop?.height ||
                       result.image?.height ||
                       result.image_quality
                         ?.height ||
                       0
                     }
-                    detections={
+                    detections={(
                       result.caries_detections ||
                       []
-                    }
+                    ).map((detection) =>
+                      result.crop
+                        ? {
+                            ...detection,
+                            bbox: {
+                              x1: detection.bbox.x1 - result.crop.offsetX,
+                              y1: detection.bbox.y1 - result.crop.offsetY,
+                              x2: detection.bbox.x2 - result.crop.offsetX,
+                              y2: detection.bbox.y2 - result.crop.offsetY,
+                            },
+                          }
+                        : detection
+                    )}
                   />
                 )}
 
@@ -396,4 +413,4 @@ export default function App() {
       </footer>
     </div>
   );
-} 
+}

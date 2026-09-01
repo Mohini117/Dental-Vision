@@ -2,7 +2,7 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
 import { Directory, Filesystem } from "@capacitor/filesystem";
 import { scanTeeth } from "../inference/scanTeeth";
 import { arbitrate, DISCLAIMER } from "../inference/arbitrate";
-import { mapClassifierLabel, mapYoloLabel } from "../inference/canonicalLabels";
+import { isCavityOrDecayLabel, mapClassifierLabel, mapYoloLabel } from "../inference/canonicalLabels";
 import { CONFIDENCE_THRESHOLDS } from "../inference/thresholds";
 
 const LocalInference = registerPlugin("LocalInference");
@@ -50,7 +50,7 @@ function adaptResult(raw, gate) {
   const detections = rawDetections.flatMap((detection) => {
     const condition = mapYoloLabel(detection.class_name || detection.label || "");
     const box = detection.bbox || detection.boundingBox;
-    if (!condition || !box) return [];
+    if (!condition || !box || !isCavityOrDecayLabel(condition)) return [];
     const boundingBox = transformBoundingBox(
       [Number(box.x1), Number(box.y1), Number(box.x2), Number(box.y2)],
       gate?.transform,
@@ -179,6 +179,7 @@ export async function analyzeImage(file) {
     try {
       let rawPromise;
       let inferenceTransform;
+      let inferenceCropDataUrl;
       const getRaw = (crop) => {
         if (!rawPromise) {
           rawPromise = LocalInference.analyze({ imageBase64: crop });
@@ -190,6 +191,7 @@ export async function analyzeImage(file) {
         {
           runDetector: async (crop, transform) => {
             inferenceTransform = transform;
+            inferenceCropDataUrl = crop;
             const raw = await getRaw(crop);
             const adapted = adaptResult(raw, { transform, passed: true });
             const detections = adapted.caries_detections.map((detection) => ({
@@ -212,6 +214,7 @@ export async function analyzeImage(file) {
           },
           runClassifier: async (crop, transform) => {
             inferenceTransform = transform;
+            inferenceCropDataUrl = crop;
             const raw = await getRaw(crop);
             const adapted = adaptResult(raw, { transform, passed: true });
             return {
@@ -225,6 +228,18 @@ export async function analyzeImage(file) {
       const normalized = rawPromise
         ? adaptResult(await rawPromise, { diagnosis: result, passed: true, transform: inferenceTransform })
         : result;
+      // Expose exactly what was analyzed (the face-detected mouth crop, or the
+      // full photo when no crop was used) so the UI can show it instead of
+      // always showing the original, uncropped photo.
+      normalized.crop = inferenceTransform
+        ? {
+            dataUrl: inferenceCropDataUrl,
+            width: inferenceTransform.width,
+            height: inferenceTransform.height,
+            offsetX: inferenceTransform.offsetX,
+            offsetY: inferenceTransform.offsetY,
+          }
+        : null;
       await logInference(file, {}, normalized, { passed: true });
       return normalized;
     } finally {

@@ -60,6 +60,13 @@ export function mapYoloLabel(label: string): Condition | undefined {
     || CANONICAL_LABEL_MAP[normalizeCanonicalLabel(label)];
 }
 
+export function isCavityOrDecayLabel(label: string | undefined | null): boolean {
+  if (!label) return false;
+  const condition = mapYoloLabel(label);
+  if (!condition) return false;
+  return condition === Condition.CAVITY_DECAY;
+}
+
 export function mapClassifierLabel(label: string): Condition | undefined {
   const trimmed = label.trim();
   return CANONICAL_LABEL_MAP[normalizeCanonicalLabel(trimmed)]

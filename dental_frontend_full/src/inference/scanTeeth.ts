@@ -102,7 +102,7 @@ async function runModels(
 }
 
 export async function scanTeeth(photo: ScanPhoto, runners: ScanRunners): Promise<DiagnosisResult> {
-  let faces = [];
+  let faces: any[] = [];
   try {
     ({ faces } = await FaceDetection.processImage({
       path: photo.path,
@@ -125,16 +125,20 @@ export async function scanTeeth(photo: ScanPhoto, runners: ScanRunners): Promise
       }
       return runModels(crop, runners);
     }
+    // A face was detected but the mouth region is too small relative to the
+    // frame — the photo was taken from too far away (e.g. a normal selfie
+    // distance). Ask for a closer shot instead of silently falling back to
+    // analyzing the whole, uncropped face/body photo.
+    return retake("not_close_up", NOT_CLOSE_UP_MESSAGE);
   }
 
+  // No face detected at all — likely an existing close-up intraoral photo
+  // with no face in frame (e.g. a photo already cropped to the mouth by the
+  // user, or a dentist-taken close-up). Fall back to analyzing the full image.
   const gate = await runPreInferenceGate(photo.source);
   if (gate.passed) {
     const crop = await cropWithPadding(photo.source, [0, 0, photo.width, photo.height], 0);
     return runModels(crop, runners);
-  }
-
-  if (faces.length > 0) {
-    return retake("not_close_up", NOT_CLOSE_UP_MESSAGE);
   }
 
   return retake("no_teeth", TAKE_TEETH_IMAGE_MESSAGE);

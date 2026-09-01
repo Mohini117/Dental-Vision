@@ -16,11 +16,11 @@ export interface GateResult {
   diagnosis?: DiagnosisResult;
 }
 
-const MIN_BLUR_VARIANCE = 18;
-const MIN_LUMINANCE = 22;
-const MAX_LUMINANCE = 238;
-const MIN_SUBJECT_SCORE = 0.055;
-const MIN_EDGE_SCORE = 10;
+const MIN_BLUR_VARIANCE = 22;
+const MIN_LUMINANCE = 30;
+const MAX_LUMINANCE = 235;
+const MIN_SUBJECT_SCORE = 0.08;
+const MIN_EDGE_SCORE = 16;
 const TAKE_TEETH_IMAGE_MESSAGE = "Please take or upload a clear close-up photo of teeth.";
 
 function failedResult(
@@ -111,7 +111,7 @@ export async function runPreInferenceGate(file: Blob): Promise<GateResult> {
     };
   }
 
-  if (subjectScore < MIN_SUBJECT_SCORE || toothScore < 0.025 || edgeScore < MIN_EDGE_SCORE) {
+  if (subjectScore < MIN_SUBJECT_SCORE || toothScore < 0.04 || edgeScore < MIN_EDGE_SCORE) {
     return {
       passed: false,
       metrics,

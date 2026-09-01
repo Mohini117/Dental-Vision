@@ -1,7 +1,7 @@
 import type { BoundingBox } from "./types";
 
 // Tune against labeled real photos; this is intentionally a starting point.
-export const MOUTH_FRAME_RATIO_THRESHOLD = 0.03;
+export const MOUTH_FRAME_RATIO_THRESHOLD = 0.045;
 
 export function isCloseUpEnough(
   mouthBox: BoundingBox,
