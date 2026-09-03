@@ -64,12 +64,13 @@ export function arbitrate(detector: DetectorResult, classifier: ClassResult): Di
   const detectorConfident = isConfident(detectorTop, detector.topConfidence);
   const classifierConfident = isConfident(classifier.condition, classifier.confidence);
   const classifierClear = hasClearMargin(classifier.condition, classifier.confidence, classifier.probabilities);
+  const noCariesDetected = !detector.detections || detector.detections.length === 0;
 
-  if (detectorConfident && detectorTop === Condition.HEALTHY && !classifierConfident) {
+  if (noCariesDetected && !classifierConfident) {
     return {
       status: "healthy",
       findings: [],
-      message: "No visible signs of the conditions this app screens for.",
+      message: "No disease found. This screening did not detect cavities, decay, or other flagged conditions in this photo.",
       disclaimer: DISCLAIMER,
     };
   }

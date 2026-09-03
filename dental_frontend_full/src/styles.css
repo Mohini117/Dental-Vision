@@ -774,7 +774,7 @@ button:disabled {
 
   border: 2px solid var(--yellow);
 
-  pointer-events: none;
+  cursor: pointer;
 }
 
 .box-overlay span {
@@ -793,6 +793,108 @@ button:disabled {
 
   font-size: 10px;
   font-weight: 900;
+}
+
+.box-overlay-selected {
+  border-color: var(--mint);
+  box-shadow: 0 0 0 3px rgba(100, 219, 201, 0.28);
+}
+
+.box-overlay-selected span {
+  background: var(--mint);
+}
+
+.detection-popover {
+  position: absolute;
+  z-index: 5;
+
+  min-width: 180px;
+  max-width: 220px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  padding: 12px 14px;
+
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+
+  background: rgba(6, 17, 29, 0.96);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+
+  color: var(--text);
+}
+
+.detection-popover-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 20px;
+  height: 20px;
+
+  border: none;
+  border-radius: 50%;
+
+  background: rgba(255,255,255,0.08);
+  color: var(--muted);
+
+  cursor: pointer;
+}
+
+.detection-popover strong {
+  padding-right: 20px;
+  font-size: 13px;
+}
+
+.detection-popover-confidence {
+  color: var(--soft);
+  font-size: 11px;
+}
+
+.detection-popover-severity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+
+  margin-top: 2px;
+  padding-top: 8px;
+
+  border-top: 1px solid var(--border);
+
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.severity-badge {
+  padding: 3px 9px;
+
+  border-radius: 999px;
+
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.severity-early {
+  background: rgba(108, 226, 166, 0.16);
+  color: var(--green);
+}
+
+.severity-moderate {
+  background: rgba(255, 208, 94, 0.16);
+  color: var(--yellow);
+}
+
+.severity-advanced {
+  background: rgba(255, 150, 150, 0.16);
+  color: var(--red);
 }
 
 .overlay-legend {

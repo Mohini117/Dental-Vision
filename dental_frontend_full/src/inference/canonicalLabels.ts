@@ -84,3 +84,43 @@ export function mapCanonicalLabel(
     ? mapYoloLabel(label)
     : mapClassifierLabel(label);
 }
+
+// Friendly display names for the detector's specific cavity/decay subtypes.
+// The model's raw classes are: black stain, cavities, cavity, decay,
+// decaycavity, decayed tooth, earlydecay, filling, healthytooth, normal,
+// tooth-decay — only the cavity/decay-related ones are relevant here, since
+// everything else is filtered out before it reaches the UI.
+export const SUBTYPE_DISPLAY_MAP: Record<string, string> = {
+  earlydecay: "Early Decay",
+  cavity: "Cavity",
+  cavities: "Cavity",
+  decay: "Decay",
+  "tooth-decay": "Decay",
+  decaycavity: "Advanced Decay",
+  "decayed tooth": "Advanced Decay",
+};
+
+export function getSubtypeDisplayName(rawSubtype: string | undefined | null): string {
+  if (!rawSubtype) return "Cavity or Decay";
+  return SUBTYPE_DISPLAY_MAP[rawSubtype.trim().toLowerCase()] || "Cavity or Decay";
+}
+
+// Heuristic only — the detection model has no dedicated severity output.
+// This infers a rough severity purely from which subtype fired, so it should
+// always be presented as an estimate, not a measured/model-verified score.
+export const SUBTYPE_SEVERITY_MAP: Record<string, "Early" | "Moderate" | "Advanced"> = {
+  earlydecay: "Early",
+  cavity: "Moderate",
+  cavities: "Moderate",
+  decay: "Moderate",
+  "tooth-decay": "Moderate",
+  decaycavity: "Advanced",
+  "decayed tooth": "Advanced",
+};
+
+export function getSubtypeSeverity(
+  rawSubtype: string | undefined | null
+): "Early" | "Moderate" | "Advanced" | null {
+  if (!rawSubtype) return null;
+  return SUBTYPE_SEVERITY_MAP[rawSubtype.trim().toLowerCase()] || null;
+}

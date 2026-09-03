@@ -227,6 +227,7 @@ public class LocalInferencePlugin extends Plugin {
         for (Detection detection : detections) {
             detectionArray.put(new JSONObject()
                 .put("class_name", detection.className)
+                .put("raw_subtype", detection.rawSubtype)
                 .put("confidence", detection.confidence)
                 .put("bbox", new JSONObject()
                     .put("x1", detection.x1)
@@ -348,7 +349,8 @@ public class LocalInferencePlugin extends Plugin {
                 continue;
             }
 
-            String className = canonicalDetectorLabel(cariesLabel(classIndex));
+            String rawSubtype = cariesLabel(classIndex);
+            String className = canonicalDetectorLabel(rawSubtype);
             if (!isCavityOrDecayLabel(className)) {
                 continue;
             }
@@ -369,7 +371,7 @@ public class LocalInferencePlugin extends Plugin {
             float x2 = clamp((centerX + width / 2.0f - padX) / scale, 0.0f, image.getWidth());
             float y2 = clamp((centerY + height / 2.0f - padY) / scale, 0.0f, image.getHeight());
             if (x2 > x1 && y2 > y1) {
-                detections.add(new Detection(className, bestScore, x1, y1, x2, y2));
+                detections.add(new Detection(className, rawSubtype, bestScore, x1, y1, x2, y2));
             }
         }
 
@@ -495,14 +497,16 @@ public class LocalInferencePlugin extends Plugin {
 
     private static class Detection {
         final String className;
+        final String rawSubtype;
         final float confidence;
         final float x1;
         final float y1;
         final float x2;
         final float y2;
 
-        Detection(String className, float confidence, float x1, float y1, float x2, float y2) {
+        Detection(String className, String rawSubtype, float confidence, float x1, float y1, float x2, float y2) {
             this.className = className;
+            this.rawSubtype = rawSubtype;
             this.confidence = confidence;
             this.x1 = x1;
             this.y1 = y1;

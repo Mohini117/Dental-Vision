@@ -2,7 +2,13 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
 import { Directory, Filesystem } from "@capacitor/filesystem";
 import { scanTeeth } from "../inference/scanTeeth";
 import { arbitrate, DISCLAIMER } from "../inference/arbitrate";
-import { isCavityOrDecayLabel, mapClassifierLabel, mapYoloLabel } from "../inference/canonicalLabels";
+import {
+  getSubtypeDisplayName,
+  getSubtypeSeverity,
+  isCavityOrDecayLabel,
+  mapClassifierLabel,
+  mapYoloLabel,
+} from "../inference/canonicalLabels";
 import { CONFIDENCE_THRESHOLDS } from "../inference/thresholds";
 
 const LocalInference = registerPlugin("LocalInference");
@@ -60,6 +66,7 @@ function adaptResult(raw, gate) {
       confidence: finiteConfidence(detection.confidence),
       boundingBox,
       rawLabel: detection.class_name,
+      rawSubtype: detection.raw_subtype,
     }];
   }).sort((first, second) => second.confidence - first.confidence);
   const rawClassifier = raw?.classifier || {};
@@ -125,6 +132,9 @@ function adaptResult(raw, gate) {
     caries_detections: detections.map((detection) => ({
       class_name: detection.condition,
       confidence: detection.confidence,
+      raw_subtype: detection.rawSubtype,
+      subtype_label: getSubtypeDisplayName(detection.rawSubtype),
+      severity: getSubtypeSeverity(detection.rawSubtype),
       bbox: {
         x1: detection.boundingBox[0],
         y1: detection.boundingBox[1],

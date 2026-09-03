@@ -337,7 +337,9 @@ export default function App() {
                   result={result}
                 />
 
-                {previewUrl && (
+                {previewUrl &&
+                  result.caries_detections &&
+                  result.caries_detections.length > 0 && (
                   <DetectionOverlay
                     src={
                       result.crop?.dataUrl ||
@@ -357,10 +359,7 @@ export default function App() {
                         ?.height ||
                       0
                     }
-                    detections={(
-                      result.caries_detections ||
-                      []
-                    ).map((detection) =>
+                    detections={result.caries_detections.map((detection) =>
                       result.crop
                         ? {
                             ...detection,

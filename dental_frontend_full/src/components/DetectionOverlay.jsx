@@ -1,6 +1,9 @@
+import { useState } from "react";
+
 import {
   Eye,
   MapPin,
+  X,
 } from "lucide-react";
 
 import { isCavityOrDecayLabel } from "../inference/canonicalLabels";
@@ -15,11 +18,14 @@ export default function DetectionOverlay({
   height,
   detections = [],
 }) {
+  const [selectedIndex, setSelectedIndex] = useState(null);
   const cavityDetections = detections.filter((detection) =>
     isCavityOrDecayLabel(detection.class_name || detection.label || detection.condition)
   );
   const safeWidth = Number(width || 0);
   const safeHeight = Number(height || 0);
+  const selected =
+    selectedIndex != null ? cavityDetections[selectedIndex] : null;
 
   return (
     <section className="panel">
@@ -71,10 +77,14 @@ export default function DetectionOverlay({
                 safeHeight) *
               100;
 
+            const isSelected = selectedIndex === index;
+
             return (
               <div
                 key={`${detection.class_name}-${index}`}
-                className="box-overlay"
+                className={`box-overlay${isSelected ? " box-overlay-selected" : ""}`}
+                role="button"
+                tabIndex={0}
                 style={{
                   left: `${x1}%`,
                   top: `${y1}%`,
@@ -86,22 +96,77 @@ export default function DetectionOverlay({
                     0,
                     y2 - y1
                   )}%`,
+                  cursor: "pointer",
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setSelectedIndex(isSelected ? null : index);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSelectedIndex(isSelected ? null : index);
+                  }
                 }}
               >
                 <span>
-                  {normalizeCondition(
-                    detection.class_name
-                  )}{" "}
+                  {detection.subtype_label ||
+                    normalizeCondition(detection.class_name)}{" "}
                   {pct(detection.confidence)}
                 </span>
               </div>
             );
           })}
 
+        {selected && (
+          <div
+            className="detection-popover"
+            style={{
+              left: `${Math.min(
+                85,
+                (Number(selected.bbox?.x1 || 0) / safeWidth) * 100
+              )}%`,
+              top: `${Math.min(
+                80,
+                (Number(selected.bbox?.y2 || 0) / safeHeight) * 100
+              )}%`,
+            }}
+          >
+            <button
+              type="button"
+              className="detection-popover-close"
+              onClick={() => setSelectedIndex(null)}
+              aria-label="Close details"
+            >
+              <X size={14} />
+            </button>
+
+            <strong>
+              {selected.subtype_label ||
+                normalizeCondition(selected.class_name)}
+            </strong>
+
+            <span className="detection-popover-confidence">
+              {pct(selected.confidence)} confident
+            </span>
+
+            {selected.severity && (
+              <div className="detection-popover-severity">
+                <span>Severity (estimated)</span>
+                <span
+                  className={`severity-badge severity-${selected.severity.toLowerCase()}`}
+                >
+                  {selected.severity}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
         {cavityDetections.length > 0 && (
           <div className="overlay-legend">
             <MapPin size={14} />
-            Highlighted regions are possible model detections.
+            Highlighted regions are possible model detections. Tap a region for details.
           </div>
         )}
       </div>
