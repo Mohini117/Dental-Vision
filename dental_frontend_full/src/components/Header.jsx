@@ -1,6 +1,6 @@
-import { Activity, ShieldCheck, Wifi } from "lucide-react";
+import { Activity, ClipboardList, ScanLine, ShieldCheck, Wifi } from "lucide-react";
 
-export default function Header() {
+export default function Header({ view, onNavigate }) {
   return (
     <header className="topbar">
       <div className="brand">
@@ -17,6 +17,24 @@ export default function Header() {
       </div>
 
       <div className="header-status">
+        <button
+          type="button"
+          className={`header-nav-btn${view === "scan" ? " active" : ""}`}
+          onClick={() => onNavigate("scan")}
+        >
+          <ScanLine size={14} />
+          Scan
+        </button>
+
+        <button
+          type="button"
+          className={`header-nav-btn${view === "questionnaire" ? " active" : ""}`}
+          onClick={() => onNavigate("questionnaire")}
+        >
+          <ClipboardList size={14} />
+          Symptom Checker
+        </button>
+
         <div className="status-chip">
           <Wifi size={14} />
           Local AI

@@ -118,50 +118,63 @@ export default function DetectionOverlay({
             );
           })}
 
-        {selected && (
-          <div
-            className="detection-popover"
-            style={{
-              left: `${Math.min(
-                85,
-                (Number(selected.bbox?.x1 || 0) / safeWidth) * 100
-              )}%`,
-              top: `${Math.min(
-                80,
-                (Number(selected.bbox?.y2 || 0) / safeHeight) * 100
-              )}%`,
-            }}
-          >
-            <button
-              type="button"
-              className="detection-popover-close"
-              onClick={() => setSelectedIndex(null)}
-              aria-label="Close details"
+        {selected && (() => {
+          const boxX1 = Number(selected.bbox?.x1 || 0);
+          const boxX2 = Number(selected.bbox?.x2 || 0);
+          const boxY1 = Number(selected.bbox?.y1 || 0);
+          const boxY2 = Number(selected.bbox?.y2 || 0);
+          const centerXPct = ((boxX1 + boxX2) / 2 / safeWidth) * 100;
+          const bottomPct = (boxY2 / safeHeight) * 100;
+          const topPct = (boxY1 / safeHeight) * 100;
+          // Open toward the center of the image (left/right and up/down)
+          // instead of always anchoring bottom-right, so the popover never
+          // gets pushed past the edge of the container.
+          const openLeftEdge = centerXPct < 50;
+          const openUpward = bottomPct > 60;
+
+          return (
+            <div
+              className="detection-popover"
+              style={{
+                ...(openLeftEdge
+                  ? { left: `${Math.max(2, Math.min(60, (boxX1 / safeWidth) * 100))}%` }
+                  : { right: `${Math.max(2, Math.min(60, 100 - (boxX2 / safeWidth) * 100))}%` }),
+                ...(openUpward
+                  ? { bottom: `${Math.max(2, 100 - topPct)}%` }
+                  : { top: `${Math.min(80, bottomPct)}%` }),
+              }}
             >
-              <X size={14} />
-            </button>
+              <button
+                type="button"
+                className="detection-popover-close"
+                onClick={() => setSelectedIndex(null)}
+                aria-label="Close details"
+              >
+                <X size={14} />
+              </button>
 
-            <strong>
-              {selected.subtype_label ||
-                normalizeCondition(selected.class_name)}
-            </strong>
+              <strong>
+                {selected.subtype_label ||
+                  normalizeCondition(selected.class_name)}
+              </strong>
 
-            <span className="detection-popover-confidence">
-              {pct(selected.confidence)} confident
-            </span>
+              <span className="detection-popover-confidence">
+                {pct(selected.confidence)} confident
+              </span>
 
-            {selected.severity && (
-              <div className="detection-popover-severity">
-                <span>Severity (estimated)</span>
-                <span
-                  className={`severity-badge severity-${selected.severity.toLowerCase()}`}
-                >
-                  {selected.severity}
-                </span>
-              </div>
-            )}
-          </div>
-        )}
+              {selected.severity && (
+                <div className="detection-popover-severity">
+                  <span>Severity (estimated)</span>
+                  <span
+                    className={`severity-badge severity-${selected.severity.toLowerCase()}`}
+                  >
+                    {selected.severity}
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {cavityDetections.length > 0 && (
           <div className="overlay-legend">

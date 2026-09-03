@@ -11,11 +11,15 @@ import ClassifierBreakdown from "./components/ClassifierBreakdown";
 import CariesEvidence from "./components/CariesEvidence";
 import QualityCard from "./components/QualityCard";
 import Disclaimer from "./components/Disclaimer";
+import Questionnaire from "./components/Questionnaire";
 
 import { analyzeImage } from "./services/api";
 
 export default function App() {
   const inputRef = useRef(null);
+
+  const [view, setView] =
+    useState("scan");
 
   const [file, setFile] =
     useState(null);
@@ -162,9 +166,15 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header />
+      <Header view={view} onNavigate={setView} />
 
       <main className="container">
+        {view === "questionnaire" && (
+          <Questionnaire onGoToScan={() => setView("scan")} />
+        )}
+
+        {view === "scan" && (
+        <>
         <section className="hero">
           <div className="hero-copy">
             <span className="hero-kicker">
@@ -405,6 +415,8 @@ export default function App() {
             )}
           </div>
         </div>
+        </>
+        )}
       </main>
 
       <footer className="footer">
