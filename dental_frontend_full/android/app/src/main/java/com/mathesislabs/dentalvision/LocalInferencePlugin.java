@@ -371,12 +371,18 @@ public class LocalInferencePlugin extends Plugin {
             float x2 = clamp((centerX + width / 2.0f - padX) / scale, 0.0f, image.getWidth());
             float y2 = clamp((centerY + height / 2.0f - padY) / scale, 0.0f, image.getHeight());
             if (x2 > x1 && y2 > y1) {
+                Log.d(TAG, "DEBUG_SUBTYPE raw=" + rawSubtype + " score=" + bestScore);
                 detections.add(new Detection(className, rawSubtype, bestScore, x1, y1, x2, y2));
             }
         }
 
         detections.sort(Comparator.comparingDouble((Detection detection) -> detection.confidence).reversed());
-        return applyNms(detections);
+        List<Detection> finalDetections = applyNms(detections);
+        Log.d(TAG, "DEBUG_SUBTYPE_KEPT count=" + finalDetections.size());
+        for (Detection detection : finalDetections) {
+            Log.d(TAG, "DEBUG_SUBTYPE_KEPT raw=" + detection.rawSubtype + " score=" + detection.confidence);
+        }
+        return finalDetections;
     }
 
     private float detectorScore(float value) {
