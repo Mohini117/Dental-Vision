@@ -16,33 +16,37 @@ export default function Header({ view, onNavigate }) {
         </div>
       </div>
 
-      <div className="header-status">
-        <button
-          type="button"
-          className={`header-nav-btn${view === "scan" ? " active" : ""}`}
-          onClick={() => onNavigate("scan")}
-        >
-          <ScanLine size={14} />
-          Scan
-        </button>
+      <div className="header-right">
+        <div className="header-nav">
+          <button
+            type="button"
+            className={`header-nav-btn${view === "scan" ? " active" : ""}`}
+            onClick={() => onNavigate("scan")}
+          >
+            <ScanLine size={14} />
+            Scan
+          </button>
 
-        <button
-          type="button"
-          className={`header-nav-btn${view === "questionnaire" ? " active" : ""}`}
-          onClick={() => onNavigate("questionnaire")}
-        >
-          <ClipboardList size={14} />
-          Symptom Checker
-        </button>
-
-        <div className="status-chip">
-          <Wifi size={14} />
-          Local AI
+          <button
+            type="button"
+            className={`header-nav-btn${view === "questionnaire" ? " active" : ""}`}
+            onClick={() => onNavigate("questionnaire")}
+          >
+            <ClipboardList size={14} />
+            Symptom Checker
+          </button>
         </div>
 
-        <div className="status-chip safe">
-          <ShieldCheck size={14} />
-          Screening only
+        <div className="header-status">
+          <div className="status-chip">
+            <Wifi size={14} />
+            Local AI
+          </div>
+
+          <div className="status-chip safe">
+            <ShieldCheck size={14} />
+            Screening only
+          </div>
         </div>
       </div>
     </header>

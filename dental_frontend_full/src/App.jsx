@@ -11,7 +11,7 @@ import ClassifierBreakdown from "./components/ClassifierBreakdown";
 import CariesEvidence from "./components/CariesEvidence";
 import QualityCard from "./components/QualityCard";
 import Disclaimer from "./components/Disclaimer";
-import Questionnaire from "./components/Questionnaire";
+import ChatQuestionnaire from "./components/ChatQuestionnaire";
 
 import { analyzeImage } from "./services/api";
 
@@ -170,7 +170,7 @@ export default function App() {
 
       <main className="container">
         {view === "questionnaire" && (
-          <Questionnaire onGoToScan={() => setView("scan")} />
+          <ChatQuestionnaire onGoToScan={() => setView("scan")} />
         )}
 
         {view === "scan" && (
