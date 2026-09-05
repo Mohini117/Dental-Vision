@@ -13,6 +13,12 @@ const STOPWORDS = new Set([
   "is", "it", "do", "does", "my", "of", "on", "in", "to", "at",
 ]);
 
+const TYPING_DELAY_MS = 650;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function significantWords(label) {
   return label
     .toLowerCase()
@@ -26,7 +32,6 @@ function significantWords(label) {
 function matchOption(text, options) {
   const normalized = text.toLowerCase();
 
-  // Common shortcut: a plain yes/no question answered with "yes"/"no".
   if (options.length === 2) {
     const labels = options.map((option) => option.label.toLowerCase());
     if (labels.includes("yes") && labels.includes("no")) {
@@ -73,85 +78,98 @@ function nextMessageId() {
 }
 
 export default function ChatQuestionnaire({ onGoToScan }) {
-  const [messages, setMessages] = useState(() => [
-    {
-      id: nextMessageId(),
-      role: "bot",
-      text: "Hi! Tell me what's bothering you, or pick an option below.",
-    },
-    {
-      id: nextMessageId(),
-      role: "bot",
-      text: QUESTIONS[START_ID].prompt,
-    },
-  ]);
+  const [messages, setMessages] = useState([]);
   const [currentId, setCurrentId] = useState(START_ID);
   const [inputValue, setInputValue] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  // Controls are only shown once the bot's current message has actually
+  // finished "typing" and appeared — never alongside or before it.
+  const [turnReady, setTurnReady] = useState(false);
   const scrollRef = useRef(null);
+  const startedRef = useRef(false);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, isTyping]);
+
+  // Kick off the conversation as a sequence, not an instant dump: greeting
+  // appears first, then — after its own typing pause — the first question.
+  useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+
+    (async () => {
+      await queueBotText(
+        "Hi! Tell me what's bothering you, or pick an option below."
+      );
+      await queueBotText(QUESTIONS[START_ID].prompt, { isTurnPrompt: true });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const currentQuestion = QUESTIONS[currentId];
   const currentResult = RESULTS[currentId];
 
-  function addBotMessage(text) {
-    setMessages((previous) => [
-      ...previous,
-      { id: nextMessageId(), role: "bot", text },
-    ]);
+  function addMessage(entry) {
+    setMessages((previous) => [...previous, { id: nextMessageId(), ...entry }]);
   }
 
-  function addUserMessage(text) {
-    setMessages((previous) => [
-      ...previous,
-      { id: nextMessageId(), role: "user", text },
-    ]);
+  async function queueBotText(text, { isTurnPrompt = false } = {}) {
+    setTurnReady(false);
+    setIsTyping(true);
+    await sleep(TYPING_DELAY_MS);
+    setIsTyping(false);
+    addMessage({ role: "bot", text });
+    if (isTurnPrompt) setTurnReady(true);
   }
 
-  function advanceTo(nextId) {
+  async function queueBotResult(result) {
+    setTurnReady(false);
+    setIsTyping(true);
+    await sleep(TYPING_DELAY_MS);
+    setIsTyping(false);
+    addMessage({ role: "bot", isResult: true, result });
+    setTurnReady(true);
+  }
+
+  async function advanceTo(nextId) {
     setCurrentId(nextId);
     const question = QUESTIONS[nextId];
     const result = RESULTS[nextId];
     if (question) {
-      addBotMessage(question.prompt);
+      await queueBotText(question.prompt, { isTurnPrompt: true });
     } else if (result) {
-      setMessages((previous) => [
-        ...previous,
-        { id: nextMessageId(), role: "bot", isResult: true, result },
-      ]);
+      await queueBotResult(result);
     }
   }
 
   function chooseOption(option) {
-    addUserMessage(option.label);
+    if (isTyping) return;
+    setTurnReady(false);
+    addMessage({ role: "user", text: option.label });
     advanceTo(option.next);
   }
 
   function startOver() {
+    startedRef.current = true;
     setCurrentId(START_ID);
-    setMessages([
-      {
-        id: nextMessageId(),
-        role: "bot",
-        text: "Let's start again — what's bothering you?",
-      },
-      {
-        id: nextMessageId(),
-        role: "bot",
-        text: QUESTIONS[START_ID].prompt,
-      },
-    ]);
+    setTurnReady(false);
+    setMessages([]);
+    (async () => {
+      await queueBotText("Let's start again — what's bothering you?");
+      await queueBotText(QUESTIONS[START_ID].prompt, { isTurnPrompt: true });
+    })();
   }
 
   function handleSend() {
+    if (isTyping) return;
     const text = inputValue.trim();
     if (!text) return;
 
-    addUserMessage(text);
+    setTurnReady(false);
+    addMessage({ role: "user", text });
     setInputValue("");
 
     if (currentQuestion) {
@@ -165,14 +183,17 @@ export default function ChatQuestionnaire({ onGoToScan }) {
     if (currentId === START_ID) {
       const route = matchKeywordRoute(text);
       if (route) {
-        addBotMessage(route.reply);
-        advanceTo(route.next);
+        (async () => {
+          await queueBotText(route.reply);
+          await advanceTo(route.next);
+        })();
         return;
       }
     }
 
-    addBotMessage(
-      "I didn't quite catch that — you can pick one of the options below, or try describing it a bit differently."
+    queueBotText(
+      "I didn't quite catch that — you can pick one of the options below, or try describing it a bit differently.",
+      { isTurnPrompt: Boolean(currentQuestion) }
     );
   }
 
@@ -256,9 +277,23 @@ export default function ChatQuestionnaire({ onGoToScan }) {
             </div>
           );
         })}
+
+        {isTyping && (
+          <div className="chat-row bot">
+            <div className="chat-avatar bot">
+              <Bot size={16} />
+            </div>
+
+            <div className="chat-bubble bot chat-typing">
+              <span />
+              <span />
+              <span />
+            </div>
+          </div>
+        )}
       </div>
 
-      {currentQuestion && (
+      {turnReady && !isTyping && currentQuestion && (
         <div className="chat-quickreplies">
           {currentQuestion.options.map((option) => (
             <button
@@ -273,7 +308,7 @@ export default function ChatQuestionnaire({ onGoToScan }) {
         </div>
       )}
 
-      {currentResult && (
+      {turnReady && !isTyping && currentResult && (
         <div className="chat-quickreplies">
           {currentResult.suggestScan && (
             <button
@@ -300,6 +335,7 @@ export default function ChatQuestionnaire({ onGoToScan }) {
           placeholder="Type what you're noticing..."
           onChange={(event) => setInputValue(event.target.value)}
           onKeyDown={handleInputKeyDown}
+          disabled={isTyping}
         />
 
         <button
@@ -307,6 +343,7 @@ export default function ChatQuestionnaire({ onGoToScan }) {
           className="chat-send-btn"
           onClick={handleSend}
           aria-label="Send"
+          disabled={isTyping}
         >
           <Send size={16} />
         </button>
